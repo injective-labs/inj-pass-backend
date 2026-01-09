@@ -61,8 +61,8 @@ export class PasskeyService {
         challenge = options.challenge;
       }
 
-      // Store challenge
-      this.challengeStorage.store(challenge, dto.action, dto.userId);
+      // Store challenge (async)
+      await this.challengeStorage.store(challenge, dto.action, dto.userId);
 
       return {
         challenge,
@@ -82,15 +82,15 @@ export class PasskeyService {
    */
   async verifyPasskey(dto: VerifyRequestDto): Promise<VerifyResponseDto> {
     try {
-      // Retrieve and validate challenge
-      const storedChallenge = this.challengeStorage.get(dto.challenge);
+      // Retrieve and validate challenge (async)
+      const storedChallenge = await this.challengeStorage.get(dto.challenge);
       
       if (!storedChallenge) {
         throw new UnauthorizedException('Challenge not found or expired');
       }
 
-      // Delete challenge (one-time use)
-      this.challengeStorage.delete(dto.challenge);
+      // Delete challenge (one-time use, async)
+      await this.challengeStorage.delete(dto.challenge);
 
       const credential = dto.attestation;
 
@@ -111,30 +111,60 @@ export class PasskeyService {
           };
         }
 
+        const credentialId = verification.registrationInfo?.credential?.id;
+        const publicKey = verification.registrationInfo?.credential?.publicKey;
+        const counter = verification.registrationInfo?.credential?.counter || 0;
+
+        // Store credential for future authentication (async)
+        if (credentialId && publicKey) {
+          await this.challengeStorage.storeCredential(
+            credentialId,
+            publicKey,
+            counter,
+          );
+        }
+
         return {
           success: true,
-          credentialId: verification.registrationInfo?.credential?.id,
-          publicKey: Buffer.from(
-            verification.registrationInfo?.credential?.publicKey || [],
-          ).toString('base64'),
+          credentialId,
+          publicKey: Buffer.from(publicKey || []).toString('base64'),
         };
       } else {
         // Verify authentication
-        // Note: In production, you would need to look up the stored credential
-        // For MVP, we just verify the signature is valid
+        const credential = dto.attestation;
+
+        if (!credential || !credential.id) {
+          throw new UnauthorizedException('Invalid credential format');
+        }
+
+        // Look up stored credential (async)
+        const storedCredential = await this.challengeStorage.getCredential(credential.id);
+        
+        if (!storedCredential) {
+          throw new UnauthorizedException('Credential not found');
+        }
+
+        // Verify authentication with stored public key
         const verification = await verifyAuthenticationResponse({
           response: credential,
           expectedChallenge: storedChallenge.challenge,
           expectedOrigin: this.origin,
           expectedRPID: this.rpId,
           requireUserVerification: true,
-          // In production, provide the actual authenticator from database:
-          // authenticator: {
-          //   credentialID: storedCredential.id,
-          //   credentialPublicKey: storedCredential.publicKey,
-          //   counter: storedCredential.counter,
-          // },
+          credential: {
+            id: storedCredential.credentialId,
+            publicKey: storedCredential.publicKey,
+            counter: storedCredential.counter,
+          },
         } as VerifyAuthenticationResponseOpts);
+
+        // Update counter (async)
+        if (verification.verified && verification.authenticationInfo) {
+          await this.challengeStorage.updateCredentialCounter(
+            credential.id,
+            verification.authenticationInfo.newCounter,
+          );
+        }
 
         return {
           success: true,
@@ -151,7 +181,10 @@ export class PasskeyService {
   /**
    * Get storage stats (for debugging)
    */
-  getStorageStats() {
-    return this.challengeStorage.getStats();
+  async getStorageStats() {
+    return {
+      challenges: await this.challengeStorage.getStats(),
+      credentials: await this.challengeStorage.getCredentialStats(),
+    };
   }
 }

@@ -1,4 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
+import { PasskeyCredential } from './entities/credential.entity';
 
 interface StoredChallenge {
   challenge: string;
@@ -8,97 +13,129 @@ interface StoredChallenge {
   expiresAt: number;
 }
 
+interface StoredCredential {
+  credentialId: string;
+  publicKey: Uint8Array;
+  counter: number;
+  createdAt: number;
+}
+
 @Injectable()
 export class ChallengeStorageService {
-  private challenges = new Map<string, StoredChallenge>();
-  private cleanupInterval: NodeJS.Timeout;
-
-  constructor() {
-    // Cleanup expired challenges every 30 seconds
-    this.cleanupInterval = setInterval(() => {
-      this.cleanup();
-    }, 30000);
-  }
+  constructor(
+    @InjectRepository(PasskeyCredential)
+    private readonly credentialRepository: Repository<PasskeyCredential>,
+    @Inject(CACHE_MANAGER)
+    private readonly cacheManager: Cache,
+  ) {}
 
   /**
-   * Store a challenge with TTL
+   * Store a challenge with TTL (Redis)
    */
-  store(challenge: string, action: 'register' | 'authenticate', userId?: string): void {
+  async store(challenge: string, action: 'register' | 'authenticate', userId?: string): Promise<void> {
     const now = Date.now();
     const expiresAt = now + 60000; // 60 seconds TTL
 
-    this.challenges.set(challenge, {
+    const data: StoredChallenge = {
       challenge,
       action,
       userId,
       createdAt: now,
       expiresAt,
-    });
+    };
+
+    // Store in Redis with 60s TTL
+    await this.cacheManager.set(`challenge:${challenge}`, JSON.stringify(data), 60000);
   }
 
   /**
-   * Get and validate a challenge
+   * Get and validate a challenge (Redis)
    */
-  get(challenge: string): StoredChallenge | null {
-    const stored = this.challenges.get(challenge);
+  async get(challenge: string): Promise<StoredChallenge | null> {
+    const stored = await this.cacheManager.get<string>(`challenge:${challenge}`);
     
     if (!stored) {
       return null;
     }
 
-    // Check if expired
-    if (Date.now() > stored.expiresAt) {
-      this.challenges.delete(challenge);
+    const data: StoredChallenge = JSON.parse(stored);
+
+    // Check if expired (Redis TTL should handle this, but double-check)
+    if (Date.now() > data.expiresAt) {
+      await this.delete(challenge);
       return null;
     }
 
-    return stored;
+    return data;
   }
 
   /**
-   * Delete a challenge (after use)
+   * Delete a challenge (Redis)
    */
-  delete(challenge: string): void {
-    this.challenges.delete(challenge);
-  }
-
-  /**
-   * Cleanup expired challenges
-   */
-  private cleanup(): void {
-    const now = Date.now();
-    for (const [key, value] of this.challenges.entries()) {
-      if (now > value.expiresAt) {
-        this.challenges.delete(key);
-      }
-    }
+  async delete(challenge: string): Promise<void> {
+    await this.cacheManager.del(`challenge:${challenge}`);
   }
 
   /**
    * Get storage stats (for debugging)
    */
-  getStats(): { total: number; expired: number } {
-    const now = Date.now();
-    let expired = 0;
-
-    for (const value of this.challenges.values()) {
-      if (now > value.expiresAt) {
-        expired++;
-      }
-    }
-
+  async getStats(): Promise<{ total: number; expired: number }> {
+    // Redis doesn't easily support counting keys, return placeholder
     return {
-      total: this.challenges.size,
-      expired,
+      total: 0,
+      expired: 0,
     };
   }
 
   /**
-   * Cleanup on module destroy
+   * Store credential (PostgreSQL)
    */
-  onModuleDestroy(): void {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
+  async storeCredential(credentialId: string, publicKey: Uint8Array, counter: number): Promise<void> {
+    const credential = this.credentialRepository.create({
+      credentialId,
+      publicKey: Buffer.from(publicKey),
+      counter,
+      userId: null, // Optional: can be used for multi-user scenarios
+    });
+
+    await this.credentialRepository.save(credential);
+  }
+
+  /**
+   * Get stored credential (PostgreSQL)
+   */
+  async getCredential(credentialId: string): Promise<StoredCredential | null> {
+    const credential = await this.credentialRepository.findOne({
+      where: { credentialId },
+    });
+
+    if (!credential) {
+      return null;
     }
+
+    return {
+      credentialId: credential.credentialId,
+      publicKey: new Uint8Array(credential.publicKey),
+      counter: Number(credential.counter),
+      createdAt: credential.createdAt.getTime(),
+    };
+  }
+
+  /**
+   * Update credential counter (PostgreSQL)
+   */
+  async updateCredentialCounter(credentialId: string, counter: number): Promise<void> {
+    await this.credentialRepository.update(
+      { credentialId },
+      { counter },
+    );
+  }
+
+  /**
+   * Get credential stats (PostgreSQL)
+   */
+  async getCredentialStats(): Promise<{ total: number }> {
+    const count = await this.credentialRepository.count();
+    return { total: count };
   }
 }
