@@ -12,7 +12,9 @@ import { PasskeyModule } from './passkey/passkey.module';
     // Load .env file (MUST be first)
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      // In production (Vercel), environment variables are loaded directly from the platform.
+      // We only look for .env in non-production environments.
+      envFilePath: process.env.NODE_ENV !== 'production' ? '.env' : undefined,
     }),
 
     // PostgreSQL Configuration (Supabase)

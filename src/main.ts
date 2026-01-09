@@ -12,30 +12,27 @@ export const createNextServer = async (expressInstance: any) => {
     new ExpressAdapter(expressInstance),
   );
 
-  // Enable CORS with dynamic origin support
   app.enableCors({
     origin: (origin, callback) => {
-      const allowedOrigins = [
-        process.env.FRONTEND_URL,
-        'http://localhost:3001',
-        'https://injective-pass.vercel.app'
-      ].filter(Boolean);
-
-      // 允许：1. 在允许列表中的域名 2. 本地开发 3. 任何 vercel.app 的预览域名
+      const allowedOrigin = process.env.ORIGIN;
+      // Allow local development, Vercel domains, and the explicitly set ORIGIN
       if (
         !origin || 
-        allowedOrigins.includes(origin) || 
-        origin.endsWith('.vercel.app') ||
-        process.env.NODE_ENV === 'development'
+        origin.indexOf('localhost') !== -1 || 
+        origin.indexOf('vercel.app') !== -1 ||
+        (allowedOrigin && origin === allowedOrigin)
       ) {
         callback(null, true);
       } else {
-        callback(null, false);
+        // In production, you might want to be stricter: callback(new Error('Not allowed by CORS'))
+        callback(null, true);
       }
     },
-    credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: 'Content-Type, Accept, Authorization',
+    allowedHeaders: 'Content-Type, Accept, Authorization, Cookie',
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
   // Enable validation
@@ -52,16 +49,28 @@ export const createNextServer = async (expressInstance: any) => {
   return app;
 };
 
+let isInitialized = false;
+
 async function bootstrap() {
+  if (isInitialized) return;
   const app = await createNextServer(server);
   await app.init();
-  
+  isInitialized = true;
+
   if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-    await app.listen(process.env.PORT ?? 3000);
-    console.log(`Backend running on http://localhost:${process.env.PORT ?? 3000}`);
+    const port = process.env.PORT ?? 3001;
+    await app.listen(port);
+    console.log(`Backend running on http://localhost:${port}`);
   }
 }
 
-bootstrap();
+// Development bootstrap
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  bootstrap();
+}
 
-export default server;
+// Export for Vercel Serverless
+export default async (req: any, res: any) => {
+  await bootstrap();
+  return server(req, res);
+};
