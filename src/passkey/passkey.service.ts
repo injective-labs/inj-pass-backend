@@ -22,10 +22,20 @@ import {
 @Injectable()
 export class PasskeyService {
   private readonly rpName = 'Injective Pass';
-  private readonly rpId = process.env.RP_ID || 'localhost';
-  private readonly origin = process.env.ORIGIN || 'http://localhost:3001';
+  private readonly rpId: string;
+  private readonly allowedOrigins: string[];
 
-  constructor(private readonly challengeStorage: ChallengeStorageService) {}
+  constructor(private readonly challengeStorage: ChallengeStorageService) {
+    if (!process.env.RP_ID) {
+      throw new Error('RP_ID environment variable is required');
+    }
+    const origins = process.env.ORIGINS?.split(',').map(o => o.trim()) || [];
+    if (origins.length === 0) {
+      throw new Error('ORIGINS environment variable is required');
+    }
+    this.rpId = process.env.RP_ID;
+    this.allowedOrigins = origins;
+  }
 
   /**
    * Generate challenge for registration or authentication
@@ -99,7 +109,7 @@ export class PasskeyService {
         const verification = await verifyRegistrationResponse({
           response: credential,
           expectedChallenge: storedChallenge.challenge,
-          expectedOrigin: this.origin,
+          expectedOrigin: this.allowedOrigins,
           expectedRPID: this.rpId,
           requireUserVerification: true,
         } as VerifyRegistrationResponseOpts);
@@ -148,7 +158,7 @@ export class PasskeyService {
         const verification = await verifyAuthenticationResponse({
           response: credential,
           expectedChallenge: storedChallenge.challenge,
-          expectedOrigin: this.origin,
+          expectedOrigin: this.allowedOrigins,
           expectedRPID: this.rpId,
           requireUserVerification: true,
           credential: {
