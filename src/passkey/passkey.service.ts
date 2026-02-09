@@ -12,6 +12,7 @@ import type {
   VerifyAuthenticationResponseOpts,
 } from '@simplewebauthn/server';
 import { ChallengeStorageService } from './challenge-storage.service';
+import { AuthService } from '../auth/auth.service';
 import {
   ChallengeRequestDto,
   ChallengeResponseDto,
@@ -25,7 +26,10 @@ export class PasskeyService {
   private readonly rpId: string;
   private readonly allowedOrigins: string[];
 
-  constructor(private readonly challengeStorage: ChallengeStorageService) {
+  constructor(
+    private readonly challengeStorage: ChallengeStorageService,
+    private readonly authService: AuthService,
+  ) {
     if (!process.env.RP_ID) {
       throw new Error('RP_ID environment variable is required');
     }
@@ -134,10 +138,14 @@ export class PasskeyService {
           );
         }
 
+        // Generate session token (30-minute validity)
+        const token = await this.authService.generateToken(credentialId, storedChallenge.userId);
+
         return {
           success: true,
           credentialId,
           publicKey: Buffer.from(publicKey || []).toString('base64'),
+          token,
         };
       } else {
         // Verify authentication
@@ -176,9 +184,13 @@ export class PasskeyService {
           );
         }
 
+        // Generate session token (30-minute validity)
+        const token = await this.authService.generateToken(storedCredential.credentialId, storedChallenge.userId);
+
         return {
           success: true,
           verified: verification.verified,
+          token,
         };
       }
     } catch (error) {

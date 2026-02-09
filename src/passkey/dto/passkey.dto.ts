@@ -32,4 +32,5 @@ export class VerifyResponseDto {
   publicKey?: string;
   verified?: boolean;
   error?: string;
+  token?: string; // Session token (30-minute validity)
 }
