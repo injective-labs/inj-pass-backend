@@ -24,6 +24,14 @@ export class VerifyRequestDto {
 
   @IsNotEmpty()
   attestation: any; // PublicKeyCredential or assertion data
+
+  @IsString()
+  @IsOptional()
+  walletAddress?: string; // Wallet address for registration
+
+  @IsString()
+  @IsOptional()
+  walletName?: string; // Wallet name for registration
 }
 
 export class VerifyResponseDto {
@@ -33,4 +41,6 @@ export class VerifyResponseDto {
   verified?: boolean;
   error?: string;
   token?: string; // Session token (30-minute validity)
+  walletAddress?: string; // Wallet address associated with credential
+  walletName?: string; // Wallet name associated with credential
 }

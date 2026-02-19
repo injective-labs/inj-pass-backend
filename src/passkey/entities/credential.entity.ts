@@ -19,6 +19,13 @@ export class PasskeyCredential {
   @Index()
   userId: string | null;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Index()
+  walletAddress: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  walletName: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

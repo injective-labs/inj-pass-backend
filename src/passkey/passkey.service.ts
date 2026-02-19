@@ -130,11 +130,14 @@ export class PasskeyService {
         const counter = verification.registrationInfo?.credential?.counter || 0;
 
         // Store credential for future authentication (async)
+        let finalWalletName = dto.walletName;
         if (credentialId && publicKey) {
-          await this.challengeStorage.storeCredential(
+          finalWalletName = await this.challengeStorage.storeCredential(
             credentialId,
             publicKey,
             counter,
+            dto.walletAddress, // Store wallet address
+            dto.walletName, // Store wallet name (will be made unique)
           );
         }
 
@@ -146,6 +149,8 @@ export class PasskeyService {
           credentialId,
           publicKey: Buffer.from(publicKey || []).toString('base64'),
           token,
+          walletAddress: dto.walletAddress, // Return wallet address
+          walletName: finalWalletName, // Return final wallet name (possibly with suffix)
         };
       } else {
         // Verify authentication
@@ -191,6 +196,8 @@ export class PasskeyService {
           success: true,
           verified: verification.verified,
           token,
+          walletAddress: storedCredential.walletAddress, // Return wallet address
+          walletName: storedCredential.walletName, // Return wallet name
         };
       }
     } catch (error) {

@@ -18,6 +18,8 @@ interface StoredCredential {
   publicKey: Uint8Array;
   counter: number;
   createdAt: number;
+  walletAddress?: string;
+  walletName?: string;
 }
 
 @Injectable()
@@ -88,17 +90,53 @@ export class ChallengeStorageService {
   }
 
   /**
+   * Generate unique wallet name by checking for duplicates
+   */
+  async generateUniqueWalletName(walletName: string): Promise<string> {
+    if (!walletName) {
+      return walletName;
+    }
+
+    // Count existing wallets with the same name
+    const count = await this.credentialRepository.count({
+      where: { walletName },
+    });
+
+    if (count === 0) {
+      return walletName;
+    }
+
+    // Find the next available number
+    let suffix = 1;
+    let candidateName = `${walletName}_${suffix}`;
+    
+    while (await this.credentialRepository.count({ where: { walletName: candidateName } }) > 0) {
+      suffix++;
+      candidateName = `${walletName}_${suffix}`;
+    }
+
+    return candidateName;
+  }
+
+  /**
    * Store credential (PostgreSQL)
    */
-  async storeCredential(credentialId: string, publicKey: Uint8Array, counter: number): Promise<void> {
+  async storeCredential(credentialId: string, publicKey: Uint8Array, counter: number, walletAddress?: string, walletName?: string): Promise<string> {
+    // Generate unique wallet name if provided
+    const uniqueWalletName = walletName ? await this.generateUniqueWalletName(walletName) : null;
+
     const credential = this.credentialRepository.create({
       credentialId,
       publicKey: Buffer.from(publicKey),
       counter,
       userId: null, // Optional: can be used for multi-user scenarios
+      walletAddress: walletAddress || null,
+      walletName: uniqueWalletName,
     });
 
     await this.credentialRepository.save(credential);
+    
+    return uniqueWalletName || walletName || '';
   }
 
   /**
@@ -118,6 +156,8 @@ export class ChallengeStorageService {
       publicKey: new Uint8Array(credential.publicKey),
       counter: Number(credential.counter),
       createdAt: credential.createdAt.getTime(),
+      walletAddress: credential.walletAddress || undefined,
+      walletName: credential.walletName || undefined,
     };
   }
 
