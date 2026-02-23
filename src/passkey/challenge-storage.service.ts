@@ -120,8 +120,33 @@ export class ChallengeStorageService {
 
   /**
    * Store credential (PostgreSQL)
+   * CRITICAL: Once walletAddress and walletName are set, they can NEVER be changed or cleared
    */
   async storeCredential(credentialId: string, publicKey: Uint8Array, counter: number, walletAddress?: string, walletName?: string): Promise<string> {
+    // First check if credential already exists
+    const existingCredential = await this.credentialRepository.findOne({
+      where: { credentialId },
+    });
+
+    // If credential already exists, NEVER modify walletAddress or walletName
+    if (existingCredential) {
+      // Only update counter and publicKey if needed
+      if (existingCredential.counter !== counter || 
+          !existingCredential.publicKey.equals(Buffer.from(publicKey))) {
+        await this.credentialRepository.update(
+          { credentialId },
+          {
+            counter,
+            publicKey: Buffer.from(publicKey),
+          },
+        );
+      }
+      
+      // Return existing wallet name - NEVER change it
+      return existingCredential.walletName || '';
+    }
+
+    // Only create new credential if it doesn't exist
     // Generate unique wallet name if provided
     const uniqueWalletName = walletName ? await this.generateUniqueWalletName(walletName) : null;
 
@@ -163,11 +188,14 @@ export class ChallengeStorageService {
 
   /**
    * Update credential counter (PostgreSQL)
+   * CRITICAL: Only updates counter field, NEVER touches walletAddress or walletName
    */
   async updateCredentialCounter(credentialId: string, counter: number): Promise<void> {
+    // Use partial update to only modify counter field
+    // This ensures walletAddress and walletName are never affected
     await this.credentialRepository.update(
       { credentialId },
-      { counter },
+      { counter }, // Only update counter field
     );
   }
 
