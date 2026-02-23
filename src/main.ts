@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import express, { Express } from 'express';
 
+
 const server: Express = express();
 
 export const createNextServer = async (expressInstance: any) => {
