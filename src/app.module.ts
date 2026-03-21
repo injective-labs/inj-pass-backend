@@ -6,6 +6,10 @@ import { redisStore } from 'cache-manager-redis-yet';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PasskeyModule } from './passkey/passkey.module';
+import { UserModule } from './user/user.module';
+import { PointsModule } from './points/points.module';
+import { ReferralModule } from './referral/referral.module';
+import { AIModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -48,6 +52,10 @@ import { PasskeyModule } from './passkey/passkey.module';
     }),
 
     PasskeyModule,
+    UserModule,
+    PointsModule,
+    ReferralModule,
+    AIModule,
   ],
   controllers: [AppController],
   providers: [AppService],

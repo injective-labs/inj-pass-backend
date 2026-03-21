@@ -32,6 +32,10 @@ export class VerifyRequestDto {
   @IsString()
   @IsOptional()
   walletName?: string; // Wallet name for registration
+
+  @IsString()
+  @IsOptional()
+  inviteCode?: string; // Invite code for referral reward
 }
 
 export class VerifyResponseDto {

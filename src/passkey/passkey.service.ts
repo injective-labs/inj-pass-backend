@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -13,6 +13,7 @@ import type {
 } from '@simplewebauthn/server';
 import { ChallengeStorageService } from './challenge-storage.service';
 import { AuthService } from '../auth/auth.service';
+import { UserService } from '../user/user.service';
 import {
   ChallengeRequestDto,
   ChallengeResponseDto,
@@ -22,6 +23,7 @@ import {
 
 @Injectable()
 export class PasskeyService {
+  private readonly logger = new Logger(PasskeyService.name);
   private readonly rpName = 'Injective Pass';
   private readonly rpId: string;
   private readonly allowedOrigins: string[];
@@ -29,6 +31,7 @@ export class PasskeyService {
   constructor(
     private readonly challengeStorage: ChallengeStorageService,
     private readonly authService: AuthService,
+    private readonly userService: UserService,
   ) {
     if (!process.env.RP_ID) {
       throw new Error('RP_ID environment variable is required');
@@ -141,6 +144,18 @@ export class PasskeyService {
           );
         }
 
+        // Create user record with invite code and initial NIJIA balance
+        // If invite code provided, bind invitation relationship
+        if (credentialId) {
+          try {
+            const user = await this.userService.createUser(credentialId, dto.inviteCode);
+            this.logger.log(`User created via passkey registration: ${user.id}`);
+          } catch (error) {
+            // Log error but don't fail registration
+            this.logger.error(`Failed to create user: ${error.message}`);
+          }
+        }
+
         // Generate session token (30-minute validity)
         const token = await this.authService.generateToken(credentialId, storedChallenge.userId);
 
@@ -188,6 +203,9 @@ export class PasskeyService {
             verification.authenticationInfo.newCounter,
           );
         }
+
+        // Backfill users row for credentials created before the NIJIA user table flow.
+        await this.userService.ensureUserExists(storedCredential.credentialId);
 
         // Generate session token (30-minute validity)
         const token = await this.authService.generateToken(storedCredential.credentialId, storedChallenge.userId);
