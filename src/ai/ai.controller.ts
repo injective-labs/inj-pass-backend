@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Headers, Param, Logger, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Headers, Param, Logger, UsePipes, ValidationPipe, UnauthorizedException } from '@nestjs/common';
 import { AIService } from './ai.service';
 import { AuthService } from '../auth/auth.service';
 import { ChatRecordRequest } from './dto/chat-record.dto';
@@ -23,12 +23,16 @@ export class AIController {
   private async getCredentialId(authHeader: string): Promise<string | null> {
     if (!authHeader) return null;
 
-    const parts = authHeader.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') return null;
+    const parts = authHeader.trim().split(' ');
+    if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') return null;
 
     const token = parts[1];
-    const payload = await this.authService.verifyToken(token);
-    return payload?.credentialId || null;
+    try {
+      const payload = await this.authService.verifyToken(token);
+      return payload?.credentialId || null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -42,7 +46,7 @@ export class AIController {
   ) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      return { ok: false, error: 'Unauthorized' };
+      throw new UnauthorizedException('Unauthorized');
     }
 
     try {
@@ -63,7 +67,7 @@ export class AIController {
   ) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      return { success: false, error: 'Unauthorized' };
+      throw new UnauthorizedException('Unauthorized');
     }
 
     try {
@@ -87,7 +91,7 @@ export class AIController {
   async getConversations(@Headers('authorization') authHeader: string) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      return [];
+      throw new UnauthorizedException('Unauthorized');
     }
 
     return this.aiService.getConversations(credentialId);
@@ -103,7 +107,7 @@ export class AIController {
   ) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      return null;
+      throw new UnauthorizedException('Unauthorized');
     }
 
     return this.aiService.getConversation(credentialId, conversationId);
@@ -119,7 +123,7 @@ export class AIController {
   ) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      return { success: false, error: 'Unauthorized' };
+      throw new UnauthorizedException('Unauthorized');
     }
 
     return this.aiService.deleteConversation(credentialId, conversationId);

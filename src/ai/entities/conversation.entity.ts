@@ -16,11 +16,11 @@ export class Conversation {
   @PrimaryColumn({ type: 'varchar', length: 100 })
   id: string;
 
-  @Column({ type: 'integer' })
-  userId: number;
+  @Column({ name: 'credentialId', type: 'varchar', length: 512 })
+  credentialId: string;
 
   @ManyToOne(() => User)
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'credentialId', referencedColumnName: 'credentialId' })
   user: User;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -29,10 +29,10 @@ export class Conversation {
   @Column({ type: 'varchar', length: 50, nullable: true })
   model: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'createdAt' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updatedAt' })
   updatedAt: Date;
 
   @OneToMany(() => Message, (message) => message.conversation, { cascade: true })

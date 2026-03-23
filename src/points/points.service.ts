@@ -26,12 +26,18 @@ export class PointsService {
     credentialId: string,
     earnedNinjia: number,
   ): Promise<{ balance: number; transactionId: number }> {
-    this.logger.log(`Syncing ${earnedNinjia} NIJIA for user: ${credentialId.substring(0, 8)}...`);
+    const safeEarnedNinjia = Number(earnedNinjia);
+    if (!Number.isFinite(safeEarnedNinjia) || safeEarnedNinjia <= 0) {
+      throw new Error('Invalid earnedNinjia');
+    }
+
+    this.logger.log(`Syncing ${safeEarnedNinjia} NIJIA for user: ${credentialId.substring(0, 8)}...`);
 
     const user = await this.userService.ensureUserExists(credentialId);
 
     const currentBalance = Number(user.ninjiaBalance);
-    const newBalance = currentBalance + earnedNinjia;
+    const safeCurrentBalance = Number.isFinite(currentBalance) ? currentBalance : 0;
+    const newBalance = safeCurrentBalance + safeEarnedNinjia;
 
     // Update user balance
     user.ninjiaBalance = newBalance;
@@ -41,7 +47,7 @@ export class PointsService {
     const transaction = await this.pointsTransactionRepository.save({
       userId: user.id,
       type: 'tap_game',
-      amount: earnedNinjia,
+      amount: safeEarnedNinjia,
       balanceAfter: newBalance,
       metadata: {},
     });
@@ -64,8 +70,11 @@ export class PointsService {
       return { balance: 0 };
     }
 
+    const rawBalance = Number(user.ninjiaBalance);
+    const safeBalance = Number.isFinite(rawBalance) ? rawBalance : 0;
+
     return {
-      balance: Number(user.ninjiaBalance),
+      balance: safeBalance,
     };
   }
 

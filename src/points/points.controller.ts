@@ -1,9 +1,34 @@
 import { Controller, Get, Post, Body, Query, Headers, Logger } from '@nestjs/common';
 import { PointsService } from './points.service';
 import { AuthService } from '../auth/auth.service';
+import { Type } from 'class-transformer';
+import { IsNumber, IsPositive } from 'class-validator';
 
 class SyncPointsDto {
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @IsPositive()
   earnedNinjia: number;
+}
+
+function resolveEarnedNinjia(payload: unknown): number {
+  let body: unknown = payload;
+
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      return Number.NaN;
+    }
+  }
+
+  if (typeof body !== 'object' || body === null) {
+    return Number.NaN;
+  }
+
+  const record = body as Record<string, unknown>;
+  const raw = record.earnedNinjia ?? record.earned_ninjia ?? record.amount;
+  return Number(raw);
 }
 
 @Controller('points')
@@ -42,10 +67,16 @@ export class PointsController {
       return { success: false, error: 'Unauthorized' };
     }
 
-    this.logger.log(`Sync points request: ${dto.earnedNinjia} NIJIA`);
+    const earnedNinjia = resolveEarnedNinjia(dto);
+    if (!Number.isFinite(earnedNinjia) || earnedNinjia <= 0) {
+      this.logger.warn(`Invalid earnedNinjia payload: type=${typeof dto}, body=${JSON.stringify(dto)}`);
+      return { success: false, error: 'Invalid earnedNinjia' };
+    }
+
+    this.logger.log(`Sync points request: ${earnedNinjia} NIJIA`);
 
     try {
-      const result = await this.pointsService.syncNinjia(credentialId, dto.earnedNinjia);
+      const result = await this.pointsService.syncNinjia(credentialId, earnedNinjia);
       return { success: true, ...result };
     } catch (error) {
       this.logger.error(`Sync points failed: ${error.message}`);

@@ -15,26 +15,25 @@ export class User {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 512, unique: true })
-  @JoinColumn({ name: 'credential_id' })
+  @Column({ name: 'credentialId', type: 'varchar', length: 512, unique: true })
   credentialId: string;
 
   @OneToOne(() => PasskeyCredential)
-  @JoinColumn({ name: 'credential_id', referencedColumnName: 'credentialId' })
+  @JoinColumn({ name: 'credentialId', referencedColumnName: 'credentialId' })
   credential: PasskeyCredential;
 
-  @Column({ type: 'varchar', length: 20, unique: true })
+  @Column({ name: 'inviteCode', type: 'varchar', length: 20, unique: true })
   inviteCode: string;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
+  @Column({ name: 'invitedBy', type: 'varchar', length: 20, nullable: true })
   invitedBy: string | null;
 
-  @Column({ type: 'decimal', precision: 20, scale: 2, default: 22.0 })
+  @Column({ name: 'ninjiaBalance', type: 'decimal', precision: 20, scale: 2, default: 22.0 })
   ninjiaBalance: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'createdAt' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updatedAt' })
   updatedAt: Date;
 }

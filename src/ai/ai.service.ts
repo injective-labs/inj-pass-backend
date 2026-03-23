@@ -72,6 +72,17 @@ export class AIService {
     // Get user
     const user = await this.userService.ensureUserExists(credentialId);
 
+    // Validate user
+    if (!user || !user.id) {
+      this.logger.error(`Failed to ensure user exists: credentialId=${credentialId}`);
+      return {
+        ok: false,
+        conversationId: request.conversationId || '',
+        balance: 0,
+        error: 'User not found or creation failed',
+      };
+    }
+
     // Calculate cost
     const inputTokens = request.usage.inputTokens || 0;
     const outputTokens = request.usage.outputTokens || 0;
@@ -99,18 +110,23 @@ export class AIService {
     const conversationId = request.conversationId || `conv_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     // Record AI usage
-    await this.aiUsageLogRepository.save({
-      userId: user.id,
-      model: request.model,
-      inputTokens,
-      outputTokens,
-      costNinjia: cost,
-      conversationId,
-    });
+    try {
+      await this.aiUsageLogRepository.save({
+        userId: user.id,
+        model: request.model,
+        inputTokens,
+        outputTokens,
+        costNinjia: cost,
+        conversationId,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to save AI usage log: ${error.message}`);
+      throw error;
+    }
 
     // Save conversation
     await this.saveConversation(
-      user.id,
+      credentialId,
       conversationId,
       request.title,
       request.messages,
@@ -158,7 +174,7 @@ export class AIService {
     if (!conversation) {
       conversation = this.conversationRepository.create({
         id: conversationId,
-        userId: user.id,
+        credentialId,
         title: messages[0]?.content?.substring(0, 50) || 'New Chat',
         model: null,
       });
@@ -199,7 +215,7 @@ export class AIService {
     }
 
     return this.conversationRepository.find({
-      where: { userId: user.id },
+      where: { credentialId },
       order: { updatedAt: 'DESC' },
     });
   }
@@ -220,7 +236,7 @@ export class AIService {
     }
 
     const conversation = await this.conversationRepository.findOne({
-      where: { id: conversationId, userId: user.id },
+      where: { id: conversationId, credentialId },
     });
 
     if (!conversation) {
@@ -252,7 +268,7 @@ export class AIService {
 
     const result = await this.conversationRepository.delete({
       id: conversationId,
-      userId: user.id,
+      credentialId,
     });
 
     return { success: (result.affected ?? 0) > 0 };
@@ -262,38 +278,48 @@ export class AIService {
    * Save conversation to database
    */
   private async saveConversation(
-    userId: number,
+    credentialId: string,
     conversationId: string,
     title: string | undefined,
     messages: ChatRecordRequest['messages'],
     model: string,
   ): Promise<void> {
-    let conversation = await this.conversationRepository.findOne({
-      where: { id: conversationId },
-    });
-
-    if (!conversation) {
-      conversation = this.conversationRepository.create({
-        id: conversationId,
-        userId,
-        title: title || messages[0]?.content?.substring(0, 50) || 'New Chat',
-        model,
+    try {
+      let conversation = await this.conversationRepository.findOne({
+        where: { id: conversationId },
       });
-      await this.conversationRepository.save(conversation);
-    }
 
-    // Clear old messages
-    await this.messageRepository.delete({ conversationId });
+      if (!conversation) {
+        conversation = this.conversationRepository.create({
+          id: conversationId,
+          credentialId,
+          title: title || messages[0]?.content?.substring(0, 50) || 'New Chat',
+          model,
+        });
+        await this.conversationRepository.save(conversation);
+      }
 
-    // Save new messages
-    for (const msg of messages) {
-      await this.messageRepository.save({
-        conversationId,
-        role: msg.role,
-        content: msg.content || '',
-        toolUse: msg.tool_use || null,
-        toolResult: msg.tool_result || null,
-      });
+      // Clear old messages
+      await this.messageRepository.delete({ conversationId });
+
+      // Save new messages
+      for (const msg of messages) {
+        try {
+          await this.messageRepository.save({
+            conversationId,
+            role: msg.role,
+            content: msg.content || '',
+            toolUse: msg.tool_use || null,
+            toolResult: msg.tool_result || null,
+          });
+        } catch (error) {
+          this.logger.error(`Failed to save message for conversation ${conversationId}: ${error.message}`);
+          throw error;
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Failed to save conversation ${conversationId}: ${error.message}`);
+      throw error;
     }
   }
 }
