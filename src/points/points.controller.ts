@@ -1,14 +1,50 @@
 import { Controller, Get, Post, Body, Query, Headers, Logger } from '@nestjs/common';
-import { PointsService } from './points.service';
+import { PointsService, NinjaMinerState } from './points.service';
 import { AuthService } from '../auth/auth.service';
 import { Type } from 'class-transformer';
-import { IsNumber, IsPositive } from 'class-validator';
+import { IsNumber, IsPositive, IsString, Min, ValidateNested } from 'class-validator';
 
 class SyncPointsDto {
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @IsPositive()
   earnedNinjia: number;
+}
+
+class NinjaMinerStateDto implements NinjaMinerState {
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  ninjaBalance: number;
+
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  cooldownEndsAt: number;
+
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  sessionStartedAt: number;
+
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  sessionEndsAt: number;
+
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  sessionEarned: number;
+}
+
+class SaveNinjaMinerStateDto {
+  @IsString()
+  walletAddress: string;
+
+  @ValidateNested()
+  @Type(() => NinjaMinerStateDto)
+  state: NinjaMinerStateDto;
 }
 
 function resolveEarnedNinjia(payload: unknown): number {
@@ -95,6 +131,49 @@ export class PointsController {
     }
 
     return this.pointsService.getBalance(credentialId);
+  }
+
+  /**
+   * Get persisted Ninja Miner session state from Redis
+   */
+  @Get('ninja-miner-state')
+  async getNinjaMinerState(
+    @Headers('authorization') authHeader: string,
+    @Query('walletAddress') walletAddress?: string,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      return { state: null };
+    }
+
+    const state = await this.pointsService.getNinjaMinerState(credentialId, walletAddress);
+    return { state };
+  }
+
+  /**
+   * Persist Ninja Miner session state to Redis
+   */
+  @Post('ninja-miner-state')
+  async saveNinjaMinerState(
+    @Headers('authorization') authHeader: string,
+    @Body() dto: SaveNinjaMinerStateDto,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    if (!dto?.walletAddress || !dto?.state) {
+      return { success: false, error: 'Invalid payload' };
+    }
+
+    const state = await this.pointsService.saveNinjaMinerState(
+      credentialId,
+      dto.walletAddress,
+      dto.state,
+    );
+
+    return { success: true, state };
   }
 
   /**

@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Inject } from '@nestjs/common';
+import type { Cache } from 'cache-manager';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity';
@@ -6,17 +9,89 @@ import { PointsTransaction } from './entities/points-transaction.entity';
 import { POINTS_CONFIG } from '../config/points.config';
 import { UserService } from '../user/user.service';
 
+export interface NinjaMinerState {
+  ninjaBalance: number;
+  cooldownEndsAt: number;
+  sessionStartedAt: number;
+  sessionEndsAt: number;
+  sessionEarned: number;
+}
+
 @Injectable()
 export class PointsService {
   private readonly logger = new Logger(PointsService.name);
+  private readonly ninjaMinerStateTtlMs = 30 * 24 * 60 * 60 * 1000; // 30 days
 
   constructor(
+    @Inject(CACHE_MANAGER)
+    private readonly cacheManager: Cache,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     @InjectRepository(PointsTransaction)
     private readonly pointsTransactionRepository: Repository<PointsTransaction>,
     private readonly userService: UserService,
   ) {}
+
+  private normalizeWalletAddress(walletAddress?: string): string {
+    const normalized = String(walletAddress ?? 'default').trim().toLowerCase();
+    return normalized.length > 0 ? normalized.slice(0, 128) : 'default';
+  }
+
+  private getNinjaMinerStateKey(credentialId: string, walletAddress?: string): string {
+    return `inj-pass:ninja-miner:${credentialId}:${this.normalizeWalletAddress(walletAddress)}`;
+  }
+
+  private sanitizeNinjaMinerState(state: Partial<NinjaMinerState>): NinjaMinerState {
+    const toFiniteNumber = (value: unknown, fallback = 0): number => {
+      const next = Number(value);
+      return Number.isFinite(next) ? next : fallback;
+    };
+
+    return {
+      ninjaBalance: Math.max(0, toFiniteNumber(state.ninjaBalance, 0)),
+      cooldownEndsAt: Math.max(0, Math.floor(toFiniteNumber(state.cooldownEndsAt, 0))),
+      sessionStartedAt: Math.max(0, Math.floor(toFiniteNumber(state.sessionStartedAt, 0))),
+      sessionEndsAt: Math.max(0, Math.floor(toFiniteNumber(state.sessionEndsAt, 0))),
+      sessionEarned: Math.max(0, toFiniteNumber(state.sessionEarned, 0)),
+    };
+  }
+
+  async getNinjaMinerState(
+    credentialId: string,
+    walletAddress?: string,
+  ): Promise<NinjaMinerState | null> {
+    const key = this.getNinjaMinerStateKey(credentialId, walletAddress);
+    const cached = await this.cacheManager.get<string>(key);
+
+    if (!cached) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(cached) as Partial<NinjaMinerState>;
+      return this.sanitizeNinjaMinerState(parsed);
+    } catch {
+      await this.cacheManager.del(key);
+      return null;
+    }
+  }
+
+  async saveNinjaMinerState(
+    credentialId: string,
+    walletAddress: string,
+    state: NinjaMinerState,
+  ): Promise<NinjaMinerState> {
+    const key = this.getNinjaMinerStateKey(credentialId, walletAddress);
+    const safeState = this.sanitizeNinjaMinerState(state);
+
+    await this.cacheManager.set(
+      key,
+      JSON.stringify(safeState),
+      this.ninjaMinerStateTtlMs,
+    );
+
+    return safeState;
+  }
 
   /**
    * Sync NIJIA balance from tap game
