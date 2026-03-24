@@ -31,6 +31,14 @@ export const POINTS_CONFIG = {
       'gpt-4o': { input: 0.0025, output: 0.01 },
       'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
     },
+    // If frontend sends an unknown model, bill using this default model.
+    DEFAULT_MODEL: 'gpt-4o-mini',
+    // Map frontend display/alias model names to billable models.
+    MODEL_ALIASES: {
+      'gpt-5.2': 'gpt-4o',
+      'gemini-3.1-pro-preview': 'claude-sonnet-4-6',
+      'deepseek-v3.2': 'gpt-4o',
+    },
     // NIJIA tokens per 1 USD (adjustable for economic balancing)
     // e.g., 100 means 1 USD = 100 NINJIA
     NINJIA_PER_DOLLAR: 100,

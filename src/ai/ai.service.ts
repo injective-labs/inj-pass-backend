@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity';
 import { AiUsageLog } from '../points/entities/ai-usage-log.entity';
+import { PointsTransaction } from '../points/entities/points-transaction.entity';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { POINTS_CONFIG } from '../config/points.config';
@@ -20,11 +21,52 @@ interface AIMessage {
 export class AIService {
   private readonly logger = new Logger(AIService.name);
 
+  private resolvePricingModel(requestedModel: string): {
+    billableModel: string;
+    pricing: { input: number; output: number };
+  } {
+    const directPricing = POINTS_CONFIG.AI.MODELS[requestedModel];
+    if (directPricing) {
+      return {
+        billableModel: requestedModel,
+        pricing: directPricing,
+      };
+    }
+
+    const aliasedModel = POINTS_CONFIG.AI.MODEL_ALIASES[requestedModel];
+    if (aliasedModel) {
+      const aliasedPricing = POINTS_CONFIG.AI.MODELS[aliasedModel];
+      if (aliasedPricing) {
+        this.logger.warn(
+          `Unknown model alias: ${requestedModel}, billing as ${aliasedModel}`,
+        );
+        return {
+          billableModel: aliasedModel,
+          pricing: aliasedPricing,
+        };
+      }
+    }
+
+    const fallbackModel = POINTS_CONFIG.AI.DEFAULT_MODEL;
+    const fallbackPricing = POINTS_CONFIG.AI.MODELS[fallbackModel];
+
+    this.logger.warn(
+      `Unknown model: ${requestedModel}, billing as default ${fallbackModel}`,
+    );
+
+    return {
+      billableModel: fallbackModel,
+      pricing: fallbackPricing,
+    };
+  }
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     @InjectRepository(AiUsageLog)
     private readonly aiUsageLogRepository: Repository<AiUsageLog>,
+    @InjectRepository(PointsTransaction)
+    private readonly pointsTransactionRepository: Repository<PointsTransaction>,
     @InjectRepository(Conversation)
     private readonly conversationRepository: Repository<Conversation>,
     @InjectRepository(Message)
@@ -35,18 +77,20 @@ export class AIService {
   /**
    * Calculate AI cost in NINJIA
    */
-  calculateCost(model: string, inputTokens: number, outputTokens: number): number {
-    const pricing = POINTS_CONFIG.AI.MODELS[model];
-    if (!pricing) {
-      this.logger.warn(`Unknown model: ${model}, using default pricing`);
-      return 0;
-    }
+  calculateCost(model: string, inputTokens: number, outputTokens: number): {
+    costNinjia: number;
+    billableModel: string;
+  } {
+    const { pricing, billableModel } = this.resolvePricingModel(model);
 
     const inputCost = (inputTokens / 1000) * pricing.input;
     const outputCost = (outputTokens / 1000) * pricing.output;
     const totalCost = inputCost + outputCost;
 
-    return totalCost * POINTS_CONFIG.AI.NINJIA_PER_DOLLAR;
+    return {
+      costNinjia: totalCost * POINTS_CONFIG.AI.NINJIA_PER_DOLLAR,
+      billableModel,
+    };
   }
 
   /**
@@ -86,7 +130,11 @@ export class AIService {
     // Calculate cost
     const inputTokens = request.usage.inputTokens || 0;
     const outputTokens = request.usage.outputTokens || 0;
-    const cost = this.calculateCost(request.model, inputTokens, outputTokens);
+    const { costNinjia: cost, billableModel } = this.calculateCost(
+      request.model,
+      inputTokens,
+      outputTokens,
+    );
     const currentBalance = Number(user.ninjiaBalance);
 
     // Check balance
@@ -101,19 +149,35 @@ export class AIService {
       };
     }
 
+    // Generate conversation ID
+    const conversationId = request.conversationId || `conv_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
     // Deduct cost
     const newBalance = currentBalance - cost;
     user.ninjiaBalance = newBalance;
     await this.userRepository.save(user);
 
-    // Generate conversation ID
-    const conversationId = request.conversationId || `conv_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    if (cost > 0) {
+      await this.pointsTransactionRepository.save({
+        userId: user.id,
+        type: 'ai_spent',
+        amount: -cost,
+        balanceAfter: newBalance,
+        metadata: {
+          conversationId,
+          model: request.model,
+          billableModel,
+          inputTokens,
+          outputTokens,
+        },
+      });
+    }
 
     // Record AI usage
     try {
       await this.aiUsageLogRepository.save({
         userId: user.id,
-        model: request.model,
+        model: billableModel,
         inputTokens,
         outputTokens,
         costNinjia: cost,
@@ -134,7 +198,7 @@ export class AIService {
     );
 
     this.logger.log(
-      `Chat recorded: user=${user.id}, ${inputTokens} in, ${outputTokens} out, ${cost} NINJIA charged, balance: ${newBalance}`,
+      `Chat recorded: user=${user.id}, model=${request.model}, billedAs=${billableModel}, ${inputTokens} in, ${outputTokens} out, ${cost} NINJIA charged, balance: ${newBalance}`,
     );
 
     return {
