@@ -94,35 +94,35 @@ export class PointsService {
   }
 
   /**
-   * Sync NIJIA balance from tap game
+   * Sync NINJA balance from tap game
    * Called when user completes a tap game session
    */
-  async syncNinjia(
+  async syncNinja(
     credentialId: string,
-    earnedNinjia: number,
+    earnedNinja: number,
   ): Promise<{ balance: number; transactionId: number }> {
-    const safeEarnedNinjia = Number(earnedNinjia);
-    if (!Number.isFinite(safeEarnedNinjia) || safeEarnedNinjia <= 0) {
-      throw new Error('Invalid earnedNinjia');
+    const safeEarnedNinja = Number(earnedNinja);
+    if (!Number.isFinite(safeEarnedNinja) || safeEarnedNinja <= 0) {
+      throw new Error('Invalid earnedNinja');
     }
 
-    this.logger.log(`Syncing ${safeEarnedNinjia} NIJIA for user: ${credentialId.substring(0, 8)}...`);
+    this.logger.log(`Syncing ${safeEarnedNinja} NINJA for user: ${credentialId.substring(0, 8)}...`);
 
     const user = await this.userService.ensureUserExists(credentialId);
 
-    const currentBalance = Number(user.ninjiaBalance);
+    const currentBalance = Number(user.ninjaBalance);
     const safeCurrentBalance = Number.isFinite(currentBalance) ? currentBalance : 0;
-    const newBalance = safeCurrentBalance + safeEarnedNinjia;
+    const newBalance = safeCurrentBalance + safeEarnedNinja;
 
     // Update user balance
-    user.ninjiaBalance = newBalance;
+    user.ninjaBalance = newBalance;
     await this.userRepository.save(user);
 
     // Record transaction
     const transaction = await this.pointsTransactionRepository.save({
       userId: user.id,
       type: 'tap_game',
-      amount: safeEarnedNinjia,
+      amount: safeEarnedNinja,
       balanceAfter: newBalance,
       metadata: {},
     });
@@ -134,7 +134,7 @@ export class PointsService {
   }
 
   /**
-   * Get user's NIJIA balance
+   * Get user's NINJA balance
    */
   async getBalance(credentialId: string): Promise<{ balance: number }> {
     const user = await this.userRepository.findOne({
@@ -145,7 +145,7 @@ export class PointsService {
       return { balance: 0 };
     }
 
-    const rawBalance = Number(user.ninjiaBalance);
+    const rawBalance = Number(user.ninjaBalance);
     const safeBalance = Number.isFinite(rawBalance) ? rawBalance : 0;
 
     return {
@@ -180,11 +180,11 @@ export class PointsService {
   }
 
   /**
-   * Deduct NIJIA for AI usage (called by AI service)
+   * Deduct NINJA for AI usage (called by AI service)
    */
   async deductForAi(
     credentialId: string,
-    costNinjia: number,
+    costNinja: number,
     conversationId?: string,
   ): Promise<{ success: boolean; balance: number; error?: string }> {
     const user = await this.userRepository.findOne({
@@ -195,8 +195,8 @@ export class PointsService {
       return { success: false, balance: 0, error: 'User not found' };
     }
 
-    const currentBalance = Number(user.ninjiaBalance);
-    let newBalance = currentBalance - costNinjia;
+    const currentBalance = Number(user.ninjaBalance);
+    let newBalance = currentBalance - costNinja;
 
     // If balance would go negative, set to 0
     if (newBalance < 0) {
@@ -206,7 +206,7 @@ export class PointsService {
     // Calculate actual cost (may be less than requested if balance insufficient)
     const actualCost = currentBalance - newBalance;
 
-    user.ninjiaBalance = newBalance;
+    user.ninjaBalance = newBalance;
     await this.userRepository.save(user);
 
     // Record transaction
@@ -215,7 +215,7 @@ export class PointsService {
       type: 'ai_spent',
       amount: -actualCost,
       balanceAfter: newBalance,
-      metadata: { conversationId, requestedCost: costNinjia },
+      metadata: { conversationId, requestedCost: costNinja },
     });
 
     return {

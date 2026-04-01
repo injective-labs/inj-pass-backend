@@ -75,10 +75,10 @@ export class AIService {
   ) {}
 
   /**
-   * Calculate AI cost in NINJIA
+   * Calculate AI cost in NINJA
    */
   calculateCost(model: string, inputTokens: number, outputTokens: number): {
-    costNinjia: number;
+    costNinja: number;
     billableModel: string;
   } {
     const { pricing, billableModel } = this.resolvePricingModel(model);
@@ -88,7 +88,7 @@ export class AIService {
     const totalCost = inputCost + outputCost;
 
     return {
-      costNinjia: totalCost * POINTS_CONFIG.AI.NINJIA_PER_DOLLAR,
+      costNinja: totalCost * POINTS_CONFIG.AI.NINJA_PER_DOLLAR,
       billableModel,
     };
   }
@@ -106,7 +106,7 @@ export class AIService {
     cost?: {
       inputTokens: number;
       outputTokens: number;
-      ninjiaDeducted: number;
+      ninjaDeducted: number;
       currency: number;
     };
     error?: string;
@@ -130,12 +130,12 @@ export class AIService {
     // Calculate cost
     const inputTokens = request.usage.inputTokens || 0;
     const outputTokens = request.usage.outputTokens || 0;
-    const { costNinjia: cost, billableModel } = this.calculateCost(
+    const { costNinja: cost, billableModel } = this.calculateCost(
       request.model,
       inputTokens,
       outputTokens,
     );
-    const currentBalance = Number(user.ninjiaBalance);
+    const currentBalance = Number(user.ninjaBalance);
 
     // Check balance
     if (currentBalance < cost) {
@@ -154,7 +154,7 @@ export class AIService {
 
     // Deduct cost
     const newBalance = currentBalance - cost;
-    user.ninjiaBalance = newBalance;
+    user.ninjaBalance = newBalance;
     await this.userRepository.save(user);
 
     if (cost > 0) {
@@ -180,7 +180,7 @@ export class AIService {
         model: billableModel,
         inputTokens,
         outputTokens,
-        costNinjia: cost,
+        costNinja: cost,
         conversationId,
       });
     } catch (error) {
@@ -208,8 +208,8 @@ export class AIService {
       cost: {
         inputTokens,
         outputTokens,
-        ninjiaDeducted: cost,
-        currency: cost / POINTS_CONFIG.AI.NINJIA_PER_DOLLAR,
+        ninjaDeducted: cost,
+        currency: cost / POINTS_CONFIG.AI.NINJA_PER_DOLLAR,
       },
     };
   }

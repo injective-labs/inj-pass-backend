@@ -73,7 +73,7 @@ export class ChatRecordResponse {
   cost?: {
     inputTokens: number;
     outputTokens: number;
-    ninjiaDeducted: number;
+    ninjaDeducted: number;
     currency: number;
   };
   error?: string;

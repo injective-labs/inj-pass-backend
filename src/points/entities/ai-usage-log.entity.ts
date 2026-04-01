@@ -29,8 +29,8 @@ export class AiUsageLog {
   @Column({ name: 'outputTokens', type: 'integer' })
   outputTokens: number;
 
-  @Column({ name: 'costNinjia', type: 'decimal', precision: 20, scale: 4 })
-  costNinjia: number;
+  @Column({ name: 'costNinja', type: 'decimal', precision: 20, scale: 4 })
+  costNinja: number;
 
   @Column({ name: 'conversationId', type: 'varchar', length: 100, nullable: true })
   conversationId: string | null;

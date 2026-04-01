@@ -30,7 +30,7 @@ type UserListRow = {
   credentialId: string;
   inviteCode: string;
   invitedBy: string | null;
-  ninjiaBalance: number;
+  ninjaBalance: number;
   walletAddress: string | null;
   walletName: string | null;
   createdAt: Date;
@@ -39,7 +39,7 @@ type UserListRow = {
     totalRequests: number;
     totalInputTokens: number;
     totalOutputTokens: number;
-    totalCostNinjia: number;
+    totalCostNinja: number;
     lastUsedAt: Date | null;
   };
 };
@@ -97,7 +97,7 @@ export class AdminService {
         'user.credentialId AS "credentialId"',
         'user.inviteCode AS "inviteCode"',
         'user.invitedBy AS "invitedBy"',
-        'user.ninjiaBalance AS "ninjiaBalance"',
+        'user.ninjaBalance AS "ninjaBalance"',
         'user.createdAt AS "createdAt"',
         'user.updatedAt AS "updatedAt"',
         'credential.walletAddress AS "walletAddress"',
@@ -154,7 +154,7 @@ export class AdminService {
         credentialId: row.credentialId,
         inviteCode: row.inviteCode,
         invitedBy: row.invitedBy,
-        ninjiaBalance: this.normalizeNumber(row.ninjiaBalance),
+        ninjaBalance: this.normalizeNumber(row.ninjaBalance),
         walletAddress: row.walletAddress,
         walletName: row.walletName,
         createdAt: new Date(row.createdAt),
@@ -163,7 +163,7 @@ export class AdminService {
           totalRequests: 0,
           totalInputTokens: 0,
           totalOutputTokens: 0,
-          totalCostNinjia: 0,
+          totalCostNinja: 0,
           lastUsedAt: null,
         },
       };
@@ -277,7 +277,7 @@ export class AdminService {
         credentialId: user.credentialId,
         inviteCode: user.inviteCode,
         invitedBy: user.invitedBy,
-        ninjiaBalance: this.normalizeNumber(user.ninjiaBalance),
+        ninjaBalance: this.normalizeNumber(user.ninjaBalance),
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         walletAddress: credential?.walletAddress ?? null,
@@ -287,7 +287,7 @@ export class AdminService {
         totalRequests: 0,
         totalInputTokens: 0,
         totalOutputTokens: 0,
-        totalCostNinjia: 0,
+        totalCostNinja: 0,
         lastUsedAt: null,
       },
       aiLogs: aiLogs.map((log) => ({
@@ -295,7 +295,7 @@ export class AdminService {
         model: log.model,
         inputTokens: log.inputTokens,
         outputTokens: log.outputTokens,
-        costNinjia: this.normalizeNumber(log.costNinjia),
+        costNinja: this.normalizeNumber(log.costNinja),
         conversationId: log.conversationId,
         createdAt: log.createdAt,
       })),
@@ -316,14 +316,14 @@ export class AdminService {
       return null;
     }
 
-    const currentBalance = this.normalizeNumber(user.ninjiaBalance);
+    const currentBalance = this.normalizeNumber(user.ninjaBalance);
     const amount = this.normalizeNumber(params.amount);
     const nextBalance = params.mode === 'set'
       ? Math.max(0, amount)
       : Math.max(0, currentBalance + amount);
     const delta = nextBalance - currentBalance;
 
-    user.ninjiaBalance = nextBalance;
+    user.ninjaBalance = nextBalance;
     await this.userRepository.save(user);
 
     const transaction = await this.pointsTransactionRepository.save({
@@ -360,7 +360,7 @@ export class AdminService {
       .addSelect('COUNT(*)', 'totalRequests')
       .addSelect('COALESCE(SUM(usage.inputTokens), 0)', 'totalInputTokens')
       .addSelect('COALESCE(SUM(usage.outputTokens), 0)', 'totalOutputTokens')
-      .addSelect('COALESCE(SUM(usage.costNinjia), 0)', 'totalCostNinjia')
+      .addSelect('COALESCE(SUM(usage.costNinja), 0)', 'totalCostNinja')
       .addSelect('MAX(usage.createdAt)', 'lastUsedAt')
       .where('usage.userId IN (:...userIds)', { userIds: safeUserIds })
       .groupBy('usage.userId')
@@ -371,7 +371,7 @@ export class AdminService {
         totalRequests: Number(row.totalRequests) || 0,
         totalInputTokens: Number(row.totalInputTokens) || 0,
         totalOutputTokens: Number(row.totalOutputTokens) || 0,
-        totalCostNinjia: this.normalizeNumber(row.totalCostNinjia),
+        totalCostNinja: this.normalizeNumber(row.totalCostNinja),
         lastUsedAt: row.lastUsedAt ? new Date(row.lastUsedAt) : null,
       });
     }

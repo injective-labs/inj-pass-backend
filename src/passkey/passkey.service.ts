@@ -144,7 +144,7 @@ export class PasskeyService {
           );
         }
 
-        // Create user record with invite code and initial NIJIA balance
+        // Create user record with invite code and initial NINJA balance
         // If invite code provided, bind invitation relationship
         if (credentialId) {
           try {
@@ -204,7 +204,7 @@ export class PasskeyService {
           );
         }
 
-        // Backfill users row for credentials created before the NIJIA user table flow.
+        // Backfill users row for credentials created before the NINJA user table flow.
         await this.userService.ensureUserExists(storedCredential.credentialId);
 
         // Generate session token (30-minute validity)

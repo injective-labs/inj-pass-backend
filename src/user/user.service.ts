@@ -32,7 +32,7 @@ export class UserService {
   }
 
   /**
-   * Create a new user with invite code and initial NIJIA balance
+   * Create a new user with invite code and initial NINJA balance
    * Called when user registers via passkey
    */
   async createUser(credentialId: string, inviteCode?: string): Promise<User> {
@@ -70,7 +70,7 @@ export class UserService {
       credentialId,
       inviteCode: newInviteCode,
       invitedBy,
-      ninjiaBalance: POINTS_CONFIG.INITIAL_BONUS,
+      ninjaBalance: POINTS_CONFIG.INITIAL_BONUS,
     });
 
     const savedUser = await this.userRepository.save(user);
@@ -135,9 +135,9 @@ export class UserService {
     if (!inviter) return 0;
 
     const reward = POINTS_CONFIG.REFERRAL.INVITER_REWARD;
-    const newBalance = Number(inviter.ninjiaBalance) + reward;
+    const newBalance = Number(inviter.ninjaBalance) + reward;
 
-    inviter.ninjiaBalance = newBalance;
+    inviter.ninjaBalance = newBalance;
     await this.userRepository.save(inviter);
 
     const transaction = await this.pointsTransactionRepository.save({
@@ -148,7 +148,7 @@ export class UserService {
       metadata: { inviteCode, role: 'inviter' },
     });
 
-    this.logger.log(`Referral reward of ${reward} NIJIA awarded to inviter ${inviteCode}`);
+    this.logger.log(`Referral reward of ${reward} NINJA awarded to inviter ${inviteCode}`);
 
     return transaction.id;
   }
@@ -158,9 +158,9 @@ export class UserService {
    */
   private async processInviteReward(user: User, inviteCode: string): Promise<number> {
     const reward = POINTS_CONFIG.REFERRAL.INVITEE_REWARD;
-    const newBalance = Number(user.ninjiaBalance) + reward;
+    const newBalance = Number(user.ninjaBalance) + reward;
 
-    user.ninjiaBalance = newBalance;
+    user.ninjaBalance = newBalance;
     await this.userRepository.save(user);
 
     const transaction = await this.pointsTransactionRepository.save({
@@ -171,7 +171,7 @@ export class UserService {
       metadata: { inviteCode, role: 'invitee' },
     });
 
-    this.logger.log(`Invite reward of ${reward} NIJIA awarded to invitee ${user.id}`);
+    this.logger.log(`Invite reward of ${reward} NINJA awarded to invitee ${user.id}`);
 
     return transaction.id;
   }
@@ -216,7 +216,7 @@ export class UserService {
   /**
    * Validate invite code
    */
-  async validateInviteCode(inviteCode: string): Promise<{ valid: boolean; inviterInfo?: { inviteCode: string; ninjiaBalance: number } }> {
+  async validateInviteCode(inviteCode: string): Promise<{ valid: boolean; inviterInfo?: { inviteCode: string; ninjaBalance: number } }> {
     const inviter = await this.userRepository.findOne({
       where: { inviteCode },
     });
@@ -229,21 +229,21 @@ export class UserService {
       valid: true,
       inviterInfo: {
         inviteCode: inviter.inviteCode,
-        ninjiaBalance: Number(inviter.ninjiaBalance),
+        ninjaBalance: Number(inviter.ninjaBalance),
       },
     };
   }
 
   /**
-   * Get user's NIJIA balance
+   * Get user's NINJA balance
    */
   async getBalance(credentialId: string): Promise<number> {
     const user = await this.getUserByCredentialId(credentialId);
-    return user ? Number(user.ninjiaBalance) : 0;
+    return user ? Number(user.ninjaBalance) : 0;
   }
 
   /**
-   * Update user's NIJIA balance (deduct or add)
+   * Update user's NINJA balance (deduct or add)
    * Returns the new balance
    */
   async updateBalance(
@@ -257,7 +257,7 @@ export class UserService {
       return { success: false, balance: 0, error: 'User not found' };
     }
 
-    const currentBalance = Number(user.ninjiaBalance);
+    const currentBalance = Number(user.ninjaBalance);
     let newBalance = currentBalance + amount;
 
     // For spending (negative amount), ensure we don't go below 0
@@ -265,7 +265,7 @@ export class UserService {
       newBalance = 0;
     }
 
-    user.ninjiaBalance = newBalance;
+    user.ninjaBalance = newBalance;
     await this.userRepository.save(user);
 
     // Record transaction

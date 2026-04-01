@@ -2,13 +2,14 @@ import { Controller, Get, Post, Body, Query, Headers, Logger } from '@nestjs/com
 import { PointsService, NinjaMinerState } from './points.service';
 import { AuthService } from '../auth/auth.service';
 import { Type } from 'class-transformer';
-import { IsNumber, IsPositive, IsString, Min, ValidateNested } from 'class-validator';
+import { IsNumber, IsOptional, IsPositive, IsString, Min, ValidateNested } from 'class-validator';
 
 class SyncPointsDto {
   @Type(() => Number)
+  @IsOptional()
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @IsPositive()
-  earnedNinjia: number;
+  earnedNinja?: number;
 }
 
 class NinjaMinerStateDto implements NinjaMinerState {
@@ -47,26 +48,6 @@ class SaveNinjaMinerStateDto {
   state: NinjaMinerStateDto;
 }
 
-function resolveEarnedNinjia(payload: unknown): number {
-  let body: unknown = payload;
-
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body);
-    } catch {
-      return Number.NaN;
-    }
-  }
-
-  if (typeof body !== 'object' || body === null) {
-    return Number.NaN;
-  }
-
-  const record = body as Record<string, unknown>;
-  const raw = record.earnedNinjia ?? record.earned_ninjia ?? record.amount;
-  return Number(raw);
-}
-
 @Controller('points')
 export class PointsController {
   private readonly logger = new Logger(PointsController.name);
@@ -91,7 +72,7 @@ export class PointsController {
   }
 
   /**
-   * Sync NIJIA from tap game
+   * Sync NINJA from tap game
    */
   @Post('sync')
   async syncPoints(
@@ -103,16 +84,16 @@ export class PointsController {
       return { success: false, error: 'Unauthorized' };
     }
 
-    const earnedNinjia = resolveEarnedNinjia(dto);
-    if (!Number.isFinite(earnedNinjia) || earnedNinjia <= 0) {
-      this.logger.warn(`Invalid earnedNinjia payload: type=${typeof dto}, body=${JSON.stringify(dto)}`);
-      return { success: false, error: 'Invalid earnedNinjia' };
+    const earnedNinja = Number(dto.earnedNinja);
+    if (!Number.isFinite(earnedNinja) || earnedNinja <= 0) {
+      this.logger.warn(`Invalid earnedNinja payload: type=${typeof dto}, body=${JSON.stringify(dto)}`);
+      return { success: false, error: 'Invalid earnedNinja' };
     }
 
-    this.logger.log(`Sync points request: ${earnedNinjia} NIJIA`);
+    this.logger.log(`Sync points request: ${earnedNinja} NINJA`);
 
     try {
-      const result = await this.pointsService.syncNinjia(credentialId, earnedNinjia);
+      const result = await this.pointsService.syncNinja(credentialId, earnedNinja);
       return { success: true, ...result };
     } catch (error) {
       this.logger.error(`Sync points failed: ${error.message}`);
@@ -121,7 +102,7 @@ export class PointsController {
   }
 
   /**
-   * Get NIJIA balance
+   * Get NINJA balance
    */
   @Get('balance')
   async getBalance(@Headers('authorization') authHeader: string) {

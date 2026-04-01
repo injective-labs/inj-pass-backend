@@ -1,10 +1,10 @@
 /**
  * Points Configuration
- * NIJIA token economics and AI pricing settings
+ * NINJA token economics and AI pricing settings
  */
 
 export const POINTS_CONFIG = {
-  // Initial NIJIA bonus for new users
+  // Initial NINJA bonus for new users
   INITIAL_BONUS: 22.0,
 
   // Tap Game reward range (per tap)
@@ -39,9 +39,9 @@ export const POINTS_CONFIG = {
       'gemini-3.1-pro-preview': 'claude-sonnet-4-6',
       'deepseek-v3.2': 'gpt-4o',
     },
-    // NIJIA tokens per 1 USD (adjustable for economic balancing)
-    // e.g., 100 means 1 USD = 100 NINJIA
-    NINJIA_PER_DOLLAR: 100,
+    // NINJA tokens per 1 USD (adjustable for economic balancing)
+    // e.g., 100 means 1 USD = 100 NINJA
+    NINJA_PER_DOLLAR: 100,
   },
 
   // Invite code generation
@@ -72,6 +72,6 @@ export interface AIUsageRecord {
   model: string;
   inputTokens: number;
   outputTokens: number;
-  costNinjia: number;
+  costNinja: number;
   conversationId?: string;
 }

@@ -37,7 +37,7 @@ export class ReferralService {
    */
   async validateInviteCode(
     inviteCode: string,
-  ): Promise<{ valid: boolean; inviterInfo?: { inviteCode: string; ninjiaBalance: number } }> {
+  ): Promise<{ valid: boolean; inviterInfo?: { inviteCode: string; ninjaBalance: number } }> {
     return this.userService.validateInviteCode(inviteCode);
   }
 

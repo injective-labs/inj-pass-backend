@@ -44,7 +44,7 @@ export class UserController {
       id: user.id,
       inviteCode: user.inviteCode,
       invitedBy: user.invitedBy,
-      ninjiaBalance: Number(user.ninjiaBalance),
+      ninjaBalance: Number(user.ninjaBalance),
       createdAt: user.createdAt,
     };
   }
