@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -9,6 +9,7 @@ import { POINTS_CONFIG } from '../config/points.config';
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
+  private readonly inviteCodePattern = /^[A-HJ-NP-Z2-9]{8}$/;
 
   constructor(
     @InjectRepository(User)
@@ -35,8 +36,17 @@ export class UserService {
    * Create a new user with invite code and initial NINJA balance
    * Called when user registers via passkey
    */
-  async createUser(credentialId: string, inviteCode?: string): Promise<User> {
+  async createUser(credentialId: string, inviteCode?: string, walletAddress?: string): Promise<User> {
     this.logger.log(`Creating user for credential: ${credentialId.substring(0, 8)}...`);
+
+    const existingByCredential = await this.userRepository.findOne({ where: { credentialId } });
+    if (existingByCredential) {
+      if (!existingByCredential.walletAddress && walletAddress) {
+        existingByCredential.walletAddress = walletAddress;
+        await this.userRepository.save(existingByCredential);
+      }
+      return existingByCredential;
+    }
 
     // Generate unique invite code
     let newInviteCode = this.generateInviteCode();
@@ -53,15 +63,20 @@ export class UserService {
     // Determine invited by
     let invitedBy: string | null = null;
     if (inviteCode) {
-      // Validate invite code
+      const normalizedInviteCode = this.normalizeInviteCode(inviteCode);
+      if (!this.inviteCodePattern.test(normalizedInviteCode)) {
+        throw new BadRequestException('Invalid invite code');
+      }
+
       const inviter = await this.userRepository.findOne({
-        where: { inviteCode },
+        where: { inviteCode: normalizedInviteCode },
       });
+
       if (inviter) {
-        invitedBy = inviteCode;
-        this.logger.log(`User invited by: ${inviteCode}`);
+        invitedBy = normalizedInviteCode;
+        this.logger.log(`User invited by: ${normalizedInviteCode}`);
       } else {
-        this.logger.warn(`Invalid invite code: ${inviteCode}`);
+        throw new BadRequestException('Invalid invite code');
       }
     }
 
@@ -71,6 +86,7 @@ export class UserService {
       inviteCode: newInviteCode,
       invitedBy,
       ninjaBalance: POINTS_CONFIG.INITIAL_BONUS,
+      walletAddress: walletAddress || null,
     });
 
     const savedUser = await this.userRepository.save(user);
@@ -122,6 +138,20 @@ export class UserService {
 
     this.logger.warn(`User missing for credential ${credentialId.substring(0, 8)}..., creating fallback user`);
     return this.createUser(credentialId);
+  }
+
+  async ensureUserExistsWithWalletAddress(credentialId: string, walletAddress?: string): Promise<User> {
+    const existingUser = await this.getUserByCredentialId(credentialId);
+    if (existingUser) {
+      if (!existingUser.walletAddress && walletAddress) {
+        existingUser.walletAddress = walletAddress;
+        await this.userRepository.save(existingUser);
+      }
+      return existingUser;
+    }
+
+    this.logger.warn(`User missing for credential ${credentialId.substring(0, 8)}..., creating fallback user`);
+    return this.createUser(credentialId, undefined, walletAddress);
   }
 
   /**
@@ -190,7 +220,7 @@ export class UserService {
    */
   async getUserByInviteCode(inviteCode: string): Promise<User | null> {
     return this.userRepository.findOne({
-      where: { inviteCode },
+      where: { inviteCode: this.normalizeInviteCode(inviteCode) },
     });
   }
 
@@ -217,8 +247,13 @@ export class UserService {
    * Validate invite code
    */
   async validateInviteCode(inviteCode: string): Promise<{ valid: boolean; inviterInfo?: { inviteCode: string; ninjaBalance: number } }> {
+    const normalizedInviteCode = this.normalizeInviteCode(inviteCode);
+    if (!this.inviteCodePattern.test(normalizedInviteCode)) {
+      return { valid: false };
+    }
+
     const inviter = await this.userRepository.findOne({
-      where: { inviteCode },
+      where: { inviteCode: normalizedInviteCode },
     });
 
     if (!inviter) {
@@ -278,5 +313,9 @@ export class UserService {
     });
 
     return { success: true, balance: newBalance };
+  }
+
+  private normalizeInviteCode(inviteCode: string): string {
+    return inviteCode.trim().toUpperCase();
   }
 }

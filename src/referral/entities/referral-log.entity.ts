@@ -11,7 +11,7 @@ export class ReferralLog {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 20, unique: true })
+  @Column({ type: 'varchar', length: 20 })
   @Index('idx_referral_logs_invite_code')
   inviteCode: string;
 
@@ -23,10 +23,10 @@ export class ReferralLog {
   @Index('idx_referral_logs_invitee')
   inviteeId: number;
 
-  @Column({ type: 'decimal', precision: 20, scale: 2, default: 100 })
+  @Column({ type: 'decimal', precision: 20, scale: 2, default: 10 })
   inviterReward: number;
 
-  @Column({ type: 'decimal', precision: 20, scale: 2, default: 50 })
+  @Column({ type: 'decimal', precision: 20, scale: 2, default: 10 })
   inviteeReward: number;
 
   @Column({ type: 'boolean', default: false })

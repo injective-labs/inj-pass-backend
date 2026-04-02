@@ -147,13 +147,8 @@ export class PasskeyService {
         // Create user record with invite code and initial NINJA balance
         // If invite code provided, bind invitation relationship
         if (credentialId) {
-          try {
-            const user = await this.userService.createUser(credentialId, dto.inviteCode);
-            this.logger.log(`User created via passkey registration: ${user.id}`);
-          } catch (error) {
-            // Log error but don't fail registration
-            this.logger.error(`Failed to create user: ${error.message}`);
-          }
+          const user = await this.userService.createUser(credentialId, dto.inviteCode, dto.walletAddress);
+          this.logger.log(`User created via passkey registration: ${user.id}`);
         }
 
         // Generate session token (30-minute validity)
@@ -205,7 +200,10 @@ export class PasskeyService {
         }
 
         // Backfill users row for credentials created before the NINJA user table flow.
-        await this.userService.ensureUserExists(storedCredential.credentialId);
+        await this.userService.ensureUserExistsWithWalletAddress(
+          storedCredential.credentialId,
+          storedCredential.walletAddress,
+        );
 
         // Generate session token (30-minute validity)
         const token = await this.authService.generateToken(storedCredential.credentialId, storedChallenge.userId);

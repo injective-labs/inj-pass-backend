@@ -1,8 +1,13 @@
 import { Controller, Get, Post, Body, Headers, Logger } from '@nestjs/common';
 import { ReferralService } from './referral.service';
 import { AuthService } from '../auth/auth.service';
+import { IsNotEmpty, IsString, Length, Matches } from 'class-validator';
 
 class ValidateInviteCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(8, 8)
+  @Matches(/^[A-HJ-NP-Z2-9]{8}$/i)
   inviteCode: string;
 }
 
@@ -58,9 +63,19 @@ export class ReferralController {
   async getStats(@Headers('authorization') authHeader: string) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      return { inviteCode: '', inviteeCount: 0, totalRewards: 0 };
+      return { inviteCode: '', inviteeCount: 0, totalRewards: 0, invitedBy: null };
     }
 
     return this.referralService.getStats(credentialId);
+  }
+
+  @Get('invitees')
+  async getInvitees(@Headers('authorization') authHeader: string) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      return { invitees: [] };
+    }
+
+    return this.referralService.getInvitees(credentialId);
   }
 }

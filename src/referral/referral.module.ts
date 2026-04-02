@@ -4,13 +4,13 @@ import { ReferralService } from './referral.service';
 import { ReferralController } from './referral.controller';
 import { User } from '../user/entities/user.entity';
 import { ReferralLog } from './entities/referral-log.entity';
-import { PointsTransaction } from '../points/entities/points-transaction.entity';
 import { UserModule } from '../user/user.module';
 import { AuthModule } from '../auth/auth.module';
+import { PasskeyCredential } from '../passkey/entities/credential.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, ReferralLog, PointsTransaction]),
+    TypeOrmModule.forFeature([User, ReferralLog, PasskeyCredential]),
     UserModule,
     AuthModule,
   ],

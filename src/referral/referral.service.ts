@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity';
 import { UserService } from '../user/user.service';
 import { ReferralLog } from './entities/referral-log.entity';
-import { PointsTransaction } from '../points/entities/points-transaction.entity';
+import { PasskeyCredential } from '../passkey/entities/credential.entity';
 
 @Injectable()
 export class ReferralService {
@@ -12,12 +12,8 @@ export class ReferralService {
 
   constructor(
     private readonly userService: UserService,
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
     @InjectRepository(ReferralLog)
     private readonly referralLogRepository: Repository<ReferralLog>,
-    @InjectRepository(PointsTransaction)
-    private readonly pointsTransactionRepository: Repository<PointsTransaction>,
   ) {}
 
   /**
@@ -72,6 +68,46 @@ export class ReferralService {
       inviteeCount,
       totalRewards,
       invitedBy: user.invitedBy,
+    };
+  }
+
+  async getInvitees(credentialId: string): Promise<{
+    invitees: Array<{
+      walletAddress: string | null;
+      walletName: string | null;
+      inviteeId: number;
+      reward: number;
+      joinedAt: Date;
+      status: 'Active';
+    }>;
+  }> {
+    const user = await this.userService.getUserByCredentialId(credentialId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const rows = await this.referralLogRepository
+      .createQueryBuilder('log')
+      .innerJoin(User, 'invitee', 'invitee.id = log.inviteeId')
+      .leftJoin(PasskeyCredential, 'credential', 'credential.credentialId = invitee.credentialId')
+      .select('log.inviteeId', 'inviteeId')
+      .addSelect('log.inviteeReward', 'inviteeReward')
+      .addSelect('log.createdAt', 'createdAt')
+      .addSelect('credential.walletAddress', 'walletAddress')
+      .addSelect('credential.walletName', 'walletName')
+      .where('log.inviterId = :inviterId', { inviterId: user.id })
+      .orderBy('log.createdAt', 'DESC')
+      .getRawMany();
+
+    return {
+      invitees: rows.map((row) => ({
+        walletAddress: row.walletAddress ?? null,
+        walletName: row.walletName ?? null,
+        inviteeId: Number(row.inviteeId),
+        reward: Number(row.inviteeReward) || 0,
+        joinedAt: new Date(row.createdAt),
+        status: 'Active' as const,
+      })),
     };
   }
 }

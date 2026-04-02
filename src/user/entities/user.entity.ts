@@ -28,8 +28,11 @@ export class User {
   @Column({ name: 'invitedBy', type: 'varchar', length: 20, nullable: true })
   invitedBy: string | null;
 
-  @Column({ name: 'ninjaBalance', type: 'decimal', precision: 20, scale: 2, default: 22.0 })
+  @Column({ name: 'ninjaBalance', type: 'decimal', precision: 20, scale: 2, default: 0 })
   ninjaBalance: number;
+
+  @Column({ name: 'walletAddress', type: 'varchar', length: 100, unique: true, nullable: true })
+  walletAddress: string | null;
 
   @CreateDateColumn({ name: 'createdAt' })
   createdAt: Date;

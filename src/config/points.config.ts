@@ -5,7 +5,7 @@
 
 export const POINTS_CONFIG = {
   // Initial NINJA bonus for new users
-  INITIAL_BONUS: 22.0,
+  INITIAL_BONUS: 0,
 
   // Tap Game reward range (per tap)
   TAP_GAME: {
@@ -16,9 +16,9 @@ export const POINTS_CONFIG = {
   // Referral rewards
   REFERRAL: {
     // Reward for the inviter when invitee registers
-    INVITER_REWARD: 100.0,
+    INVITER_REWARD: 10,
     // Reward for the invitee when they register with an invite code
-    INVITEE_REWARD: 50.0,
+    INVITEE_REWARD: 10,
   },
 
   // AI pricing configuration
