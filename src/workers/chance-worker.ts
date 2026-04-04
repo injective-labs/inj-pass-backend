@@ -119,7 +119,7 @@ async function processRange(fromBlock: number, toBlock: number) {
       const chances = Number(args.chances);
       const cooldownEndsAt = Number(args.cooldownEndsAt);
 
-      await postPurchase({
+      const result = await postPurchase({
         txHash: log.transactionHash.toLowerCase(),
         walletAddress: buyer,
         productId: mapPlanIdToProductId(planId),
@@ -129,7 +129,7 @@ async function processRange(fromBlock: number, toBlock: number) {
         logIndex: Number(log.index),
       });
 
-      console.log(`[chance-worker] processed tx=${log.transactionHash} buyer=${buyer} plan=${planId} chances=${chances}`);
+      console.log(`[chance-worker] processed tx=${log.transactionHash} buyer=${buyer} plan=${planId} chances=${chances}`, result);
     }
   } catch (error) {
     const maybe = error as { error?: { code?: number; message?: string }; shortMessage?: string; message?: string };
@@ -187,7 +187,7 @@ async function processRangeFromReceipts(fromBlock: number, toBlock: number) {
         const chances = Number(parsed.args.chances);
         const cooldownEndsAt = Number(parsed.args.cooldownEndsAt);
 
-        await postPurchase({
+        const result = await postPurchase({
           txHash: String(receipt.hash).toLowerCase(),
           walletAddress: buyer,
           productId: mapPlanIdToProductId(planId),
@@ -197,7 +197,7 @@ async function processRangeFromReceipts(fromBlock: number, toBlock: number) {
           logIndex: Number(log.index),
         });
 
-        console.log(`[chance-worker] processed tx=${receipt.hash} buyer=${buyer} plan=${planId} chances=${chances}`);
+        console.log(`[chance-worker] processed tx=${receipt.hash} buyer=${buyer} plan=${planId} chances=${chances}`, result);
       }
     }
   }
