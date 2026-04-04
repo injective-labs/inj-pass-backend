@@ -1,4 +1,16 @@
-import { Controller, Get, Post, Delete, Body, Headers, Param, Logger, UsePipes, ValidationPipe, UnauthorizedException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Body,
+  Headers,
+  Param,
+  Logger,
+  UsePipes,
+  ValidationPipe,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { AIService } from './ai.service';
 import { AuthService } from '../auth/auth.service';
 import { ChatRecordRequest } from './dto/chat-record.dto';

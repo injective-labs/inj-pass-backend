@@ -7,21 +7,23 @@ import express, { Express } from 'express';
 const server: Express = express();
 
 function getAllowedOrigins() {
-  const configuredOrigins = process.env.ORIGINS
-    ?.split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean) ?? [];
+  const configuredOrigins =
+    process.env.ORIGINS?.split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean) ?? [];
 
   if (process.env.NODE_ENV !== 'production') {
-    return Array.from(new Set([
-      ...configuredOrigins,
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:3002',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:3001',
-      'http://127.0.0.1:3002',
-    ]));
+    return Array.from(
+      new Set([
+        ...configuredOrigins,
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:3002',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        'http://127.0.0.1:3002',
+      ]),
+    );
   }
 
   return configuredOrigins;

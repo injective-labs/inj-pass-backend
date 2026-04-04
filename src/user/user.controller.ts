@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Logger, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Headers, Logger } from '@nestjs/common';
 import { UserService } from './user.service';
 import { AuthService } from '../auth/auth.service';
 import { User } from './entities/user.entity';
@@ -33,7 +33,16 @@ export class UserController {
   async getProfile(@Headers('authorization') authHeader: string) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      throw new UnauthorizedException('Unauthorized');
+      // Keep response shape stable (same style as points/balance) to avoid empty-body parsing issues.
+      return {
+        id: 0,
+        inviteCode: '',
+        invitedBy: null,
+        ninjaBalance: 0,
+        chanceRemaining: 0,
+        chanceCooldownEndsAt: 0,
+        createdAt: null,
+      };
     }
 
     // Backfill missing users row for valid sessions created before users table flow.
@@ -44,8 +53,13 @@ export class UserController {
       inviteCode: user.inviteCode,
       invitedBy: user.invitedBy,
       ninjaBalance: Number(user.ninjaBalance),
-      chanceRemaining: Number((user as User & { chanceRemaining?: number }).chanceRemaining ?? 0),
-      chanceCooldownEndsAt: Number((user as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt ?? 0),
+      chanceRemaining: Number(
+        (user as User & { chanceRemaining?: number }).chanceRemaining ?? 0,
+      ),
+      chanceCooldownEndsAt: Number(
+        (user as User & { chanceCooldownEndsAt?: number })
+          .chanceCooldownEndsAt ?? 0,
+      ),
       createdAt: user.createdAt,
     };
   }

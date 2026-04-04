@@ -36,10 +36,18 @@ export class UserService {
    * Create a new user with invite code and initial NINJA balance
    * Called when user registers via passkey
    */
-  async createUser(credentialId: string, inviteCode?: string, walletAddress?: string): Promise<User> {
-    this.logger.log(`Creating user for credential: ${credentialId.substring(0, 8)}...`);
+  async createUser(
+    credentialId: string,
+    inviteCode?: string,
+    walletAddress?: string,
+  ): Promise<User> {
+    this.logger.log(
+      `Creating user for credential: ${credentialId.substring(0, 8)}...`,
+    );
 
-    const existingByCredential = await this.userRepository.findOne({ where: { credentialId } });
+    const existingByCredential = await this.userRepository.findOne({
+      where: { credentialId },
+    });
     if (existingByCredential) {
       if (!existingByCredential.walletAddress && walletAddress) {
         existingByCredential.walletAddress = walletAddress;
@@ -90,7 +98,9 @@ export class UserService {
     });
 
     const savedUser = await this.userRepository.save(user);
-    this.logger.log(`User created with id: ${savedUser.id}, inviteCode: ${newInviteCode}`);
+    this.logger.log(
+      `User created with id: ${savedUser.id}, inviteCode: ${newInviteCode}`,
+    );
 
     // Record initial bonus transaction
     await this.pointsTransactionRepository.save({
@@ -107,7 +117,9 @@ export class UserService {
       const inviteeTxId = await this.processInviteReward(savedUser, invitedBy);
 
       // Record in referral_logs
-      const inviter = await this.userRepository.findOne({ where: { inviteCode: invitedBy } });
+      const inviter = await this.userRepository.findOne({
+        where: { inviteCode: invitedBy },
+      });
       if (inviter) {
         await this.referralLogRepository.save({
           inviteCode: invitedBy,
@@ -136,11 +148,16 @@ export class UserService {
       return existingUser;
     }
 
-    this.logger.warn(`User missing for credential ${credentialId.substring(0, 8)}..., creating fallback user`);
+    this.logger.warn(
+      `User missing for credential ${credentialId.substring(0, 8)}..., creating fallback user`,
+    );
     return this.createUser(credentialId);
   }
 
-  async ensureUserExistsWithWalletAddress(credentialId: string, walletAddress?: string): Promise<User> {
+  async ensureUserExistsWithWalletAddress(
+    credentialId: string,
+    walletAddress?: string,
+  ): Promise<User> {
     const existingUser = await this.getUserByCredentialId(credentialId);
     if (existingUser) {
       if (!existingUser.walletAddress && walletAddress) {
@@ -150,7 +167,9 @@ export class UserService {
       return existingUser;
     }
 
-    this.logger.warn(`User missing for credential ${credentialId.substring(0, 8)}..., creating fallback user`);
+    this.logger.warn(
+      `User missing for credential ${credentialId.substring(0, 8)}..., creating fallback user`,
+    );
     return this.createUser(credentialId, undefined, walletAddress);
   }
 
@@ -178,7 +197,9 @@ export class UserService {
       metadata: { inviteCode, role: 'inviter' },
     });
 
-    this.logger.log(`Referral reward of ${reward} NINJA awarded to inviter ${inviteCode}`);
+    this.logger.log(
+      `Referral reward of ${reward} NINJA awarded to inviter ${inviteCode}`,
+    );
 
     return transaction.id;
   }
@@ -186,7 +207,10 @@ export class UserService {
   /**
    * Process invite reward for the invitee
    */
-  private async processInviteReward(user: User, inviteCode: string): Promise<number> {
+  private async processInviteReward(
+    user: User,
+    inviteCode: string,
+  ): Promise<number> {
     const reward = POINTS_CONFIG.REFERRAL.INVITEE_REWARD;
     const newBalance = Number(user.ninjaBalance) + reward;
 
@@ -201,7 +225,9 @@ export class UserService {
       metadata: { inviteCode, role: 'invitee' },
     });
 
-    this.logger.log(`Invite reward of ${reward} NINJA awarded to invitee ${user.id}`);
+    this.logger.log(
+      `Invite reward of ${reward} NINJA awarded to invitee ${user.id}`,
+    );
 
     return transaction.id;
   }
@@ -246,7 +272,10 @@ export class UserService {
   /**
    * Validate invite code
    */
-  async validateInviteCode(inviteCode: string): Promise<{ valid: boolean; inviterInfo?: { inviteCode: string; ninjaBalance: number } }> {
+  async validateInviteCode(inviteCode: string): Promise<{
+    valid: boolean;
+    inviterInfo?: { inviteCode: string; ninjaBalance: number };
+  }> {
     const normalizedInviteCode = this.normalizeInviteCode(inviteCode);
     if (!this.inviteCodePattern.test(normalizedInviteCode)) {
       return { valid: false };

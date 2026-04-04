@@ -51,7 +51,8 @@ export const AGENT_TOOLS: AnthropicTool[] = [
   },
   {
     name: 'get_balance',
-    description: 'Get the current INJ, USDT and USDC balances of the user wallet.',
+    description:
+      'Get the current INJ, USDT and USDC balances of the user wallet.',
     input_schema: { type: 'object' as const, properties: {}, required: [] },
   },
   {
@@ -61,8 +62,16 @@ export const AGENT_TOOLS: AnthropicTool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        fromToken: { type: 'string', enum: ['INJ', 'USDT', 'USDC'], description: 'Token to sell' },
-        toToken: { type: 'string', enum: ['INJ', 'USDT', 'USDC'], description: 'Token to buy' },
+        fromToken: {
+          type: 'string',
+          enum: ['INJ', 'USDT', 'USDC'],
+          description: 'Token to sell',
+        },
+        toToken: {
+          type: 'string',
+          enum: ['INJ', 'USDT', 'USDC'],
+          description: 'Token to buy',
+        },
         amount: { type: 'string', description: 'Amount to swap e.g. "0.5"' },
         slippage: { type: 'number', description: 'Slippage % (default 0.5)' },
       },
@@ -80,7 +89,10 @@ export const AGENT_TOOLS: AnthropicTool[] = [
         toToken: { type: 'string', enum: ['INJ', 'USDT', 'USDC'] },
         amount: { type: 'string' },
         slippage: { type: 'number', description: 'Default 0.5' },
-        expectedOutput: { type: 'string', description: 'From get_swap_quote, shown in confirmation dialog' },
+        expectedOutput: {
+          type: 'string',
+          description: 'From get_swap_quote, shown in confirmation dialog',
+        },
       },
       required: ['fromToken', 'toToken', 'amount'],
     },

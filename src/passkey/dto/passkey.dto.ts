@@ -1,4 +1,11 @@
-import { IsEnum, IsOptional, IsString, IsNotEmpty, Length, Matches } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsNotEmpty,
+  Length,
+  Matches,
+} from 'class-validator';
 
 export class ChallengeRequestDto {
   @IsEnum(['register', 'authenticate'])

@@ -12,7 +12,13 @@ import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, AiUsageLog, PointsTransaction, Conversation, Message]),
+    TypeOrmModule.forFeature([
+      User,
+      AiUsageLog,
+      PointsTransaction,
+      Conversation,
+      Message,
+    ]),
     AuthModule,
     UserModule,
   ],

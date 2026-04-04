@@ -55,7 +55,7 @@ export const POINTS_CONFIG = {
 export type PointsTransactionType = 'tap_game' | 'referral_bonus' | 'ai_spent';
 
 export interface AIModelPricing {
-  input: number;  // Price per 1K input tokens in USD
+  input: number; // Price per 1K input tokens in USD
   output: number; // Price per 1K output tokens in USD
 }
 

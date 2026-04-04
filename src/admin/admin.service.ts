@@ -109,7 +109,11 @@ export class AdminService {
 
     const qb = this.userRepository
       .createQueryBuilder('user')
-      .leftJoin(PasskeyCredential, 'credential', 'credential.credentialId = user.credentialId')
+      .leftJoin(
+        PasskeyCredential,
+        'credential',
+        'credential.credentialId = user.credentialId',
+      )
       .select([
         'user.id AS "id"',
         'user.credentialId AS "credentialId"',
@@ -143,7 +147,11 @@ export class AdminService {
 
     const countQb = this.userRepository
       .createQueryBuilder('user')
-      .leftJoin(PasskeyCredential, 'credential', 'credential.credentialId = user.credentialId');
+      .leftJoin(
+        PasskeyCredential,
+        'credential',
+        'credential.credentialId = user.credentialId',
+      );
 
     if (query) {
       countQb.where(
@@ -164,7 +172,9 @@ export class AdminService {
       countQb.getCount(),
     ]);
 
-    const userIds = rawUsers.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
+    const userIds = rawUsers
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isFinite(id));
     const aiUsageMap = await this.getAiUsageSummaryMap(userIds);
 
     const users: UserListRow[] = rawUsers.map((row) => {
@@ -279,7 +289,9 @@ export class AdminService {
     }
 
     const [credential, transactions, aiLogs, aiUsage] = await Promise.all([
-      this.credentialRepository.findOne({ where: { credentialId: user.credentialId } }),
+      this.credentialRepository.findOne({
+        where: { credentialId: user.credentialId },
+      }),
       this.pointsTransactionRepository.find({
         where: { userId },
         order: { createdAt: 'DESC' },
@@ -300,8 +312,13 @@ export class AdminService {
         inviteCode: user.inviteCode,
         invitedBy: user.invitedBy,
         ninjaBalance: this.normalizeNumber(user.ninjaBalance),
-        chanceRemaining: this.normalizeNumber((user as User & { chanceRemaining?: number }).chanceRemaining),
-        chanceCooldownEndsAt: this.normalizeNumber((user as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt),
+        chanceRemaining: this.normalizeNumber(
+          (user as User & { chanceRemaining?: number }).chanceRemaining,
+        ),
+        chanceCooldownEndsAt: this.normalizeNumber(
+          (user as User & { chanceCooldownEndsAt?: number })
+            .chanceCooldownEndsAt,
+        ),
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         walletAddress: credential?.walletAddress ?? null,
@@ -335,16 +352,19 @@ export class AdminService {
   }
 
   async adjustUserBalance(params: AdjustBalanceParams) {
-    const user = await this.userRepository.findOne({ where: { id: params.userId } });
+    const user = await this.userRepository.findOne({
+      where: { id: params.userId },
+    });
     if (!user) {
       return null;
     }
 
     const currentBalance = this.normalizeNumber(user.ninjaBalance);
     const amount = this.normalizeNumber(params.amount);
-    const nextBalance = params.mode === 'set'
-      ? Math.max(0, amount)
-      : Math.max(0, currentBalance + amount);
+    const nextBalance =
+      params.mode === 'set'
+        ? Math.max(0, amount)
+        : Math.max(0, currentBalance + amount);
     const delta = nextBalance - currentBalance;
 
     user.ninjaBalance = nextBalance;
@@ -374,8 +394,14 @@ export class AdminService {
   async ingestChancePurchase(params: IngestChancePurchaseParams) {
     const normalizedTxHash = params.txHash.trim().toLowerCase();
     const normalizedWalletAddress = params.walletAddress.trim().toLowerCase();
-    const normalizedChanceAmount = Math.max(0, Math.floor(this.normalizeNumber(params.chanceAmount, 0)));
-    const normalizedCooldownEndsAt = Math.max(0, Math.floor(this.normalizeNumber(params.cooldownEndsAt, 0)));
+    const normalizedChanceAmount = Math.max(
+      0,
+      Math.floor(this.normalizeNumber(params.chanceAmount, 0)),
+    );
+    const normalizedCooldownEndsAt = Math.max(
+      0,
+      Math.floor(this.normalizeNumber(params.cooldownEndsAt, 0)),
+    );
 
     let user = await this.userRepository.findOne({
       where: { walletAddress: normalizedWalletAddress },
@@ -398,7 +424,9 @@ export class AdminService {
     }
 
     if (!user) {
-      throw new Error(`User not found for walletAddress: ${normalizedWalletAddress}`);
+      throw new Error(
+        `User not found for walletAddress: ${normalizedWalletAddress}`,
+      );
     }
 
     return this.userRepository.manager.transaction(async (manager) => {
@@ -415,9 +443,16 @@ export class AdminService {
         throw new Error(`User disappeared during processing: ${user.id}`);
       }
 
-      const currentChance = this.normalizeNumber((lockedUser as User & { chanceRemaining?: number }).chanceRemaining, 0);
+      const currentChance = this.normalizeNumber(
+        (lockedUser as User & { chanceRemaining?: number }).chanceRemaining,
+        0,
+      );
       const nextChance = Math.max(0, currentChance + normalizedChanceAmount);
-      const currentCooldown = this.normalizeNumber((lockedUser as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt, 0);
+      const currentCooldown = this.normalizeNumber(
+        (lockedUser as User & { chanceCooldownEndsAt?: number })
+          .chanceCooldownEndsAt,
+        0,
+      );
       const nextCooldown = Math.max(currentCooldown, normalizedCooldownEndsAt);
 
       const insertResult = await txChanceRepo
@@ -447,7 +482,9 @@ export class AdminService {
         | undefined;
 
       if (!insertedTx?.id) {
-        const existing = await txChanceRepo.findOne({ where: { txHash: normalizedTxHash } });
+        const existing = await txChanceRepo.findOne({
+          where: { txHash: normalizedTxHash },
+        });
         return {
           duplicate: true,
           userId: existing?.userId ?? lockedUser.id,
@@ -455,8 +492,18 @@ export class AdminService {
         };
       }
 
-      (lockedUser as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceRemaining = nextChance;
-      (lockedUser as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceCooldownEndsAt = nextCooldown;
+      (
+        lockedUser as User & {
+          chanceRemaining: number;
+          chanceCooldownEndsAt: number;
+        }
+      ).chanceRemaining = nextChance;
+      (
+        lockedUser as User & {
+          chanceRemaining: number;
+          chanceCooldownEndsAt: number;
+        }
+      ).chanceCooldownEndsAt = nextCooldown;
       await txUserRepo.save(lockedUser);
 
       return {
@@ -471,7 +518,9 @@ export class AdminService {
   }
 
   private async getAiUsageSummaryMap(userIds: number[]) {
-    const safeUserIds = [...new Set(userIds)].filter((id) => Number.isFinite(id));
+    const safeUserIds = [...new Set(userIds)].filter((id) =>
+      Number.isFinite(id),
+    );
     const empty = new Map<number, UserListRow['aiUsage']>();
     if (safeUserIds.length === 0) {
       return empty;

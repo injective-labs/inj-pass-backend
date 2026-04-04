@@ -63,7 +63,12 @@ export class ReferralController {
   async getStats(@Headers('authorization') authHeader: string) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      return { inviteCode: '', inviteeCount: 0, totalRewards: 0, invitedBy: null };
+      return {
+        inviteCode: '',
+        inviteeCount: 0,
+        totalRewards: 0,
+        invitedBy: null,
+      };
     }
 
     return this.referralService.getStats(credentialId);

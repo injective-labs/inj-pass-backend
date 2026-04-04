@@ -1,7 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import Redis from 'ioredis';
-import type { StoredDApp, StoredDAppCategory, StoredDAppTab } from './dapps.constants';
+import type {
+  StoredDApp,
+  StoredDAppCategory,
+  StoredDAppTab,
+} from './dapps.constants';
 
 type UploadedAsset = {
   originalname: string;
@@ -67,11 +71,14 @@ export class DappsService {
     const keyword = query?.trim().toLowerCase();
     if (!keyword) return dapps;
 
-    return dapps.filter((dapp) =>
-      dapp.name.toLowerCase().includes(keyword) ||
-      dapp.description.toLowerCase().includes(keyword) ||
-      dapp.url.toLowerCase().includes(keyword) ||
-      dapp.categories.some((category) => category.toLowerCase().includes(keyword)),
+    return dapps.filter(
+      (dapp) =>
+        dapp.name.toLowerCase().includes(keyword) ||
+        dapp.description.toLowerCase().includes(keyword) ||
+        dapp.url.toLowerCase().includes(keyword) ||
+        dapp.categories.some((category) =>
+          category.toLowerCase().includes(keyword),
+        ),
     );
   }
 
@@ -98,7 +105,9 @@ export class DappsService {
     const dapps = await this.getStoredDapps();
     const missingCategories = Array.from(
       new Set(
-        dapps.flatMap((dapp) => dapp.categories).filter((category) => !ids.includes(category)),
+        dapps
+          .flatMap((dapp) => dapp.categories)
+          .filter((category) => !ids.includes(category)),
       ),
     );
 
@@ -127,7 +136,9 @@ export class DappsService {
       throw new BadRequestException('At least one DApp category is required.');
     }
 
-    const invalidCategories = categories.filter((category) => !allowedCategories.has(category));
+    const invalidCategories = categories.filter(
+      (category) => !allowedCategories.has(category),
+    );
     if (invalidCategories.length > 0) {
       throw new BadRequestException(
         `DApp categories are not defined in tabs: ${invalidCategories.join(', ')}`,
@@ -143,7 +154,10 @@ export class DappsService {
       name: input.name.trim(),
       description: input.description.trim(),
       categories,
-      order: typeof input.order === 'number' && Number.isFinite(input.order) ? input.order : 0,
+      order:
+        typeof input.order === 'number' && Number.isFinite(input.order)
+          ? input.order
+          : 0,
       url: input.url.trim(),
       icon: this.toPublicUrl(input.icon.trim()),
       featured: Boolean(input.featured),
@@ -163,7 +177,9 @@ export class DappsService {
     return index >= 0 ? dapps[index] : nextDapp;
   }
 
-  async uploadImage(file: UploadedAsset): Promise<{ key: string; publicUrl: string }> {
+  async uploadImage(
+    file: UploadedAsset,
+  ): Promise<{ key: string; publicUrl: string }> {
     const extension = this.getExtension(file.originalname, file.mimetype);
     const baseName = this.getBaseName(file.originalname);
     const key = `dapp/${baseName}_${Date.now()}.${extension}`;
@@ -205,7 +221,11 @@ export class DappsService {
             order: Number.isFinite(dapp.order) ? dapp.order : 0,
             categories: dapp.categories.filter(Boolean),
           }))
-          .sort((left, right) => right.order - left.order || right.updatedAt.localeCompare(left.updatedAt));
+          .sort(
+            (left, right) =>
+              right.order - left.order ||
+              right.updatedAt.localeCompare(left.updatedAt),
+          );
       } catch {
         await this.redisClient.del(this.cacheKey);
       }
@@ -218,7 +238,9 @@ export class DappsService {
     const cached = await this.redisClient.get(this.tabsCacheKey);
     if (cached) {
       try {
-        return (JSON.parse(cached) as StoredDAppTab[]).sort((left, right) => left.order - right.order);
+        return (JSON.parse(cached) as StoredDAppTab[]).sort(
+          (left, right) => left.order - right.order,
+        );
       } catch {
         await this.redisClient.del(this.tabsCacheKey);
       }
@@ -230,7 +252,11 @@ export class DappsService {
   private async saveStoredDapps(dapps: StoredDApp[]) {
     const sorted = dapps
       .slice()
-      .sort((left, right) => right.order - left.order || right.updatedAt.localeCompare(left.updatedAt));
+      .sort(
+        (left, right) =>
+          right.order - left.order ||
+          right.updatedAt.localeCompare(left.updatedAt),
+      );
     await this.redisClient.set(this.cacheKey, JSON.stringify(sorted));
   }
 

@@ -32,7 +32,12 @@ export class AiUsageLog {
   @Column({ name: 'costNinja', type: 'decimal', precision: 20, scale: 4 })
   costNinja: number;
 
-  @Column({ name: 'conversationId', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'conversationId',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   conversationId: string | null;
 
   @CreateDateColumn({ name: 'createdAt' })

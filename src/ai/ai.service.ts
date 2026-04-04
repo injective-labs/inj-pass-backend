@@ -77,7 +77,11 @@ export class AIService {
   /**
    * Calculate AI cost in NINJA
    */
-  calculateCost(model: string, inputTokens: number, outputTokens: number): {
+  calculateCost(
+    model: string,
+    inputTokens: number,
+    outputTokens: number,
+  ): {
     costNinja: number;
     billableModel: string;
   } {
@@ -118,7 +122,9 @@ export class AIService {
 
     // Validate user
     if (!user || !user.id) {
-      this.logger.error(`Failed to ensure user exists: credentialId=${credentialId}`);
+      this.logger.error(
+        `Failed to ensure user exists: credentialId=${credentialId}`,
+      );
       return {
         ok: false,
         conversationId: request.conversationId || '',
@@ -150,7 +156,9 @@ export class AIService {
     }
 
     // Generate conversation ID
-    const conversationId = request.conversationId || `conv_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const conversationId =
+      request.conversationId ||
+      `conv_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     // Deduct cost
     const newBalance = currentBalance - cost;
@@ -287,7 +295,10 @@ export class AIService {
   /**
    * Get conversation by ID
    */
-  async getConversation(credentialId: string, conversationId: string): Promise<{
+  async getConversation(
+    credentialId: string,
+    conversationId: string,
+  ): Promise<{
     conversation: Conversation;
     messages: Message[];
   } | null> {
@@ -377,12 +388,16 @@ export class AIService {
             toolResult: msg.tool_result || null,
           });
         } catch (error) {
-          this.logger.error(`Failed to save message for conversation ${conversationId}: ${error.message}`);
+          this.logger.error(
+            `Failed to save message for conversation ${conversationId}: ${error.message}`,
+          );
           throw error;
         }
       }
     } catch (error) {
-      this.logger.error(`Failed to save conversation ${conversationId}: ${error.message}`);
+      this.logger.error(
+        `Failed to save conversation ${conversationId}: ${error.message}`,
+      );
       throw error;
     }
   }

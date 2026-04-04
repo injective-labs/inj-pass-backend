@@ -1,8 +1,23 @@
-import { Controller, Get, Post, Body, Query, Headers, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Headers,
+  Logger,
+} from '@nestjs/common';
 import { PointsService } from './points.service';
 import { AuthService } from '../auth/auth.service';
 import { Type } from 'class-transformer';
-import { IsNumber, IsOptional, IsPositive, IsString, Min, ValidateNested } from 'class-validator';
+import {
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 class SyncPointsDto {
   @Type(() => Number)
@@ -121,17 +136,23 @@ export class PointsController {
 
     const earnedNinja = Number(dto.earnedNinja);
     if (!Number.isFinite(earnedNinja) || earnedNinja <= 0) {
-      this.logger.warn(`Invalid earnedNinja payload: type=${typeof dto}, body=${JSON.stringify(dto)}`);
+      this.logger.warn(
+        `Invalid earnedNinja payload: type=${typeof dto}, body=${JSON.stringify(dto)}`,
+      );
       return { success: false, error: 'Invalid earnedNinja' };
     }
 
     this.logger.log(`Sync points request: ${earnedNinja} NINJA`);
 
     try {
-      const result = await this.pointsService.syncNinja(credentialId, earnedNinja, {
-        consumeChance: Boolean(dto.consumeChance),
-        chanceCooldownSeconds: dto.chanceCooldownSeconds,
-      });
+      const result = await this.pointsService.syncNinja(
+        credentialId,
+        earnedNinja,
+        {
+          consumeChance: Boolean(dto.consumeChance),
+          chanceCooldownSeconds: dto.chanceCooldownSeconds,
+        },
+      );
       return { success: true, ...result };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Sync failed';
@@ -166,7 +187,10 @@ export class PointsController {
       return { state: null };
     }
 
-    const state = await this.pointsService.getNinjaMinerState(credentialId, walletAddress);
+    const state = await this.pointsService.getNinjaMinerState(
+      credentialId,
+      walletAddress,
+    );
     return { state };
   }
 
@@ -221,9 +245,13 @@ export class PointsController {
     const cooldownSeconds = Number(dto?.cooldownSeconds ?? 20);
 
     try {
-      return await this.pointsService.consumeChance(credentialId, cooldownSeconds);
+      return await this.pointsService.consumeChance(
+        credentialId,
+        cooldownSeconds,
+      );
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Consume chance failed';
+      const message =
+        error instanceof Error ? error.message : 'Consume chance failed';
       this.logger.error(`Consume chance failed: ${message}`);
       return { success: false, error: message };
     }

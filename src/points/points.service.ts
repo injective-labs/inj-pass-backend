@@ -36,34 +36,58 @@ export class PointsService {
   ) {}
 
   private normalizeWalletAddress(walletAddress?: string): string {
-    const normalized = String(walletAddress ?? 'default').trim().toLowerCase();
+    const normalized = String(walletAddress ?? 'default')
+      .trim()
+      .toLowerCase();
     return normalized.length > 0 ? normalized.slice(0, 128) : 'default';
   }
 
-  private getNinjaMinerStateKey(credentialId: string, walletAddress?: string): string {
+  private getNinjaMinerStateKey(
+    credentialId: string,
+    walletAddress?: string,
+  ): string {
     return `inj-pass:ninja-miner:${credentialId}:${this.normalizeWalletAddress(walletAddress)}`;
   }
 
-  private sanitizeNinjaMinerState(state: Partial<NinjaMinerState>): NinjaMinerState {
+  private sanitizeNinjaMinerState(
+    state: Partial<NinjaMinerState>,
+  ): NinjaMinerState {
     const toFiniteNumber = (value: unknown, fallback = 0): number => {
       const next = Number(value);
       return Number.isFinite(next) ? next : fallback;
     };
 
-    const legacyCooldownEndsAt = typeof state.cooldownEndsAt !== 'undefined'
-      ? state.cooldownEndsAt
-      : undefined;
-    const tapCooldownEndsAt = typeof state.tapCooldownEndsAt !== 'undefined'
-      ? state.tapCooldownEndsAt
-      : legacyCooldownEndsAt;
+    const legacyCooldownEndsAt =
+      typeof state.cooldownEndsAt !== 'undefined'
+        ? state.cooldownEndsAt
+        : undefined;
+    const tapCooldownEndsAt =
+      typeof state.tapCooldownEndsAt !== 'undefined'
+        ? state.tapCooldownEndsAt
+        : legacyCooldownEndsAt;
 
     return {
       ninjaBalance: Math.max(0, toFiniteNumber(state.ninjaBalance, 0)),
-      chanceRemaining: Math.max(0, Math.floor(toFiniteNumber(state.chanceRemaining, 0))),
-      tapCooldownEndsAt: Math.max(0, Math.floor(toFiniteNumber(tapCooldownEndsAt, 0))),
-      chanceCooldownEndsAt: Math.max(0, Math.floor(toFiniteNumber(state.chanceCooldownEndsAt, 0))),
-      sessionStartedAt: Math.max(0, Math.floor(toFiniteNumber(state.sessionStartedAt, 0))),
-      sessionEndsAt: Math.max(0, Math.floor(toFiniteNumber(state.sessionEndsAt, 0))),
+      chanceRemaining: Math.max(
+        0,
+        Math.floor(toFiniteNumber(state.chanceRemaining, 0)),
+      ),
+      tapCooldownEndsAt: Math.max(
+        0,
+        Math.floor(toFiniteNumber(tapCooldownEndsAt, 0)),
+      ),
+      chanceCooldownEndsAt: Math.max(
+        0,
+        Math.floor(toFiniteNumber(state.chanceCooldownEndsAt, 0)),
+      ),
+      sessionStartedAt: Math.max(
+        0,
+        Math.floor(toFiniteNumber(state.sessionStartedAt, 0)),
+      ),
+      sessionEndsAt: Math.max(
+        0,
+        Math.floor(toFiniteNumber(state.sessionEndsAt, 0)),
+      ),
       sessionEarned: Math.max(0, toFiniteNumber(state.sessionEarned, 0)),
     };
   }
@@ -113,15 +137,25 @@ export class PointsService {
     credentialId: string,
     earnedNinja: number,
     options?: { consumeChance?: boolean; chanceCooldownSeconds?: number },
-  ): Promise<{ balance: number; transactionId: number; chanceRemaining?: number; chanceCooldownEndsAt?: number }> {
+  ): Promise<{
+    balance: number;
+    transactionId: number;
+    chanceRemaining?: number;
+    chanceCooldownEndsAt?: number;
+  }> {
     const safeEarnedNinja = Number(earnedNinja);
     if (!Number.isFinite(safeEarnedNinja) || safeEarnedNinja <= 0) {
       throw new Error('Invalid earnedNinja');
     }
 
-    this.logger.log(`Syncing ${safeEarnedNinja} NINJA for user: ${credentialId.substring(0, 8)}...`);
+    this.logger.log(
+      `Syncing ${safeEarnedNinja} NINJA for user: ${credentialId.substring(0, 8)}...`,
+    );
     const consumeChance = Boolean(options?.consumeChance);
-    const safeChanceCooldownSeconds = Math.max(1, Math.floor(Number(options?.chanceCooldownSeconds) || 20));
+    const safeChanceCooldownSeconds = Math.max(
+      1,
+      Math.floor(Number(options?.chanceCooldownSeconds) || 20),
+    );
 
     await this.userService.ensureUserExists(credentialId);
 
@@ -141,10 +175,27 @@ export class PointsService {
 
       const now = Date.now();
       const currentBalance = Number(user.ninjaBalance);
-      const safeCurrentBalance = Number.isFinite(currentBalance) ? currentBalance : 0;
+      const safeCurrentBalance = Number.isFinite(currentBalance)
+        ? currentBalance
+        : 0;
 
-      let nextChanceRemaining = Math.max(0, Math.floor(Number((user as User & { chanceRemaining?: number }).chanceRemaining) || 0));
-      let nextChanceCooldownEndsAt = Math.max(0, Math.floor(Number((user as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt) || 0));
+      let nextChanceRemaining = Math.max(
+        0,
+        Math.floor(
+          Number(
+            (user as User & { chanceRemaining?: number }).chanceRemaining,
+          ) || 0,
+        ),
+      );
+      let nextChanceCooldownEndsAt = Math.max(
+        0,
+        Math.floor(
+          Number(
+            (user as User & { chanceCooldownEndsAt?: number })
+              .chanceCooldownEndsAt,
+          ) || 0,
+        ),
+      );
 
       if (consumeChance) {
         if (nextChanceRemaining <= 0) {
@@ -162,8 +213,18 @@ export class PointsService {
       const newBalance = safeCurrentBalance + safeEarnedNinja;
       user.ninjaBalance = newBalance;
       if (consumeChance) {
-        (user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceRemaining = nextChanceRemaining;
-        (user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceCooldownEndsAt = nextChanceCooldownEndsAt;
+        (
+          user as User & {
+            chanceRemaining: number;
+            chanceCooldownEndsAt: number;
+          }
+        ).chanceRemaining = nextChanceRemaining;
+        (
+          user as User & {
+            chanceRemaining: number;
+            chanceCooldownEndsAt: number;
+          }
+        ).chanceCooldownEndsAt = nextChanceCooldownEndsAt;
       }
 
       await txUserRepo.save(user);
@@ -223,12 +284,13 @@ export class PointsService {
       return { transactions: [], total: 0 };
     }
 
-    const [transactions, total] = await this.pointsTransactionRepository.findAndCount({
-      where: { userId: user.id },
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    const [transactions, total] =
+      await this.pointsTransactionRepository.findAndCount({
+        where: { userId: user.id },
+        order: { createdAt: 'DESC' },
+        skip: (page - 1) * limit,
+        take: limit,
+      });
 
     return { transactions, total };
   }
@@ -236,8 +298,16 @@ export class PointsService {
   async consumeChance(
     credentialId: string,
     cooldownSeconds = 20,
-  ): Promise<{ success: boolean; chanceRemaining?: number; chanceCooldownEndsAt?: number; error?: string }> {
-    const safeCooldownSeconds = Math.max(1, Math.floor(Number(cooldownSeconds) || 20));
+  ): Promise<{
+    success: boolean;
+    chanceRemaining?: number;
+    chanceCooldownEndsAt?: number;
+    error?: string;
+  }> {
+    const safeCooldownSeconds = Math.max(
+      1,
+      Math.floor(Number(cooldownSeconds) || 20),
+    );
     const now = Date.now();
 
     return this.userRepository.manager.transaction(async (manager) => {
@@ -252,8 +322,23 @@ export class PointsService {
         return { success: false, error: 'User not found' };
       }
 
-      const currentChance = Math.max(0, Math.floor(Number((user as User & { chanceRemaining?: number }).chanceRemaining) || 0));
-      const currentCooldownEndsAt = Math.max(0, Math.floor(Number((user as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt) || 0));
+      const currentChance = Math.max(
+        0,
+        Math.floor(
+          Number(
+            (user as User & { chanceRemaining?: number }).chanceRemaining,
+          ) || 0,
+        ),
+      );
+      const currentCooldownEndsAt = Math.max(
+        0,
+        Math.floor(
+          Number(
+            (user as User & { chanceCooldownEndsAt?: number })
+              .chanceCooldownEndsAt,
+          ) || 0,
+        ),
+      );
 
       if (currentChance <= 0) {
         return {
@@ -276,8 +361,12 @@ export class PointsService {
       const nextChance = currentChance - 1;
       const nextCooldownEndsAt = now + safeCooldownSeconds * 1000;
 
-      (user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceRemaining = nextChance;
-      (user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceCooldownEndsAt = nextCooldownEndsAt;
+      (
+        user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }
+      ).chanceRemaining = nextChance;
+      (
+        user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }
+      ).chanceCooldownEndsAt = nextCooldownEndsAt;
       await txUserRepo.save(user);
 
       return {

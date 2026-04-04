@@ -64,8 +64,12 @@ function checkWin(tiles: string[]): { win: boolean; rule: string | null } {
   return { win: isWin, rule };
 }
 
-export async function playHashMahjong(context: AgentContext): Promise<HashMahjongResult> {
-  const fromAddress = context.isSandbox ? context.sandboxAddress : context.walletAddress;
+export async function playHashMahjong(
+  context: AgentContext,
+): Promise<HashMahjongResult> {
+  const fromAddress = context.isSandbox
+    ? context.sandboxAddress
+    : context.walletAddress;
   const pk = context.isSandbox ? context.privateKey : context.privateKey;
 
   console.log('[game.playHashMahjong] Playing from:', fromAddress);
@@ -76,7 +80,8 @@ export async function playHashMahjong(context: AgentContext): Promise<HashMahjon
   // 3. Check win conditions
 
   // Placeholder
-  const placeholderHash = '0x' + Math.random().toString(16).slice(2, 66).padEnd(64, '0');
+  const placeholderHash =
+    '0x' + Math.random().toString(16).slice(2, 66).padEnd(64, '0');
   const tiles = deriveTilesFromHash(placeholderHash);
   const { win, rule } = checkWin(tiles);
 
@@ -96,10 +101,17 @@ export async function playHashMahjongMulti(
 ): Promise<MultiMahjongResult> {
   // Cap at 20 rounds
   const actualRounds = Math.min(Math.max(1, rounds), 20);
-  const fromAddress = context.isSandbox ? context.sandboxAddress : context.walletAddress;
+  const fromAddress = context.isSandbox
+    ? context.sandboxAddress
+    : context.walletAddress;
   const pk = context.isSandbox ? context.privateKey : context.privateKey;
 
-  console.log('[game.playHashMahjongMulti] Playing', actualRounds, 'rounds from:', fromAddress);
+  console.log(
+    '[game.playHashMahjongMulti] Playing',
+    actualRounds,
+    'rounds from:',
+    fromAddress,
+  );
 
   // TODO: Implement actual multi-round play
 
@@ -108,7 +120,8 @@ export async function playHashMahjongMulti(
   let wins = 0;
 
   for (let i = 0; i < actualRounds; i++) {
-    const placeholderHash = '0x' + Math.random().toString(16).slice(2, 66).padEnd(64, '0');
+    const placeholderHash =
+      '0x' + Math.random().toString(16).slice(2, 66).padEnd(64, '0');
     const tiles = deriveTilesFromHash(placeholderHash);
     const { win, rule } = checkWin(tiles);
 
@@ -128,7 +141,7 @@ export async function playHashMahjongMulti(
     wins,
     losses: actualRounds - wins,
     winRate: ((wins / actualRounds) * 100).toFixed(1) + '%',
-    bestRule: results.find(r => r.win)?.rule || null,
+    bestRule: results.find((r) => r.win)?.rule || null,
     results,
   };
 }

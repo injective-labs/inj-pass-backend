@@ -16,7 +16,9 @@ export class Message {
   @Column({ name: 'conversationId', type: 'varchar', length: 100 })
   conversationId: string;
 
-  @ManyToOne(() => Conversation, (conversation) => conversation.messages, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Conversation, (conversation) => conversation.messages, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'conversationId' })
   conversation: Conversation;
 

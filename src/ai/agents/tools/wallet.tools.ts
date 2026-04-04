@@ -44,11 +44,17 @@ const TOKENS = {
 
 // RPC URL
 const getRpcUrl = () => {
-  return process.env.INJECTIVE_EVM_RPC || 'https://injective-1.public.blastapi.io';
+  return (
+    process.env.INJECTIVE_EVM_RPC || 'https://injective-1.public.blastapi.io'
+  );
 };
 
-export async function getWalletInfo(context: AgentContext): Promise<WalletInfoResult> {
-  const activeAddr = context.isSandbox ? context.sandboxAddress : context.walletAddress;
+export async function getWalletInfo(
+  context: AgentContext,
+): Promise<WalletInfoResult> {
+  const activeAddr = context.isSandbox
+    ? context.sandboxAddress
+    : context.walletAddress;
 
   if (!activeAddr) {
     return {
@@ -63,12 +69,18 @@ export async function getWalletInfo(context: AgentContext): Promise<WalletInfoRe
     address: activeAddr,
     network: 'Injective EVM Mainnet',
     chainId: 1776,
-    ...(context.isSandbox ? { note: 'SANDBOX wallet — not the user\'s real wallet' } : {}),
+    ...(context.isSandbox
+      ? { note: "SANDBOX wallet — not the user's real wallet" }
+      : {}),
   };
 }
 
-export async function getBalance(context: AgentContext): Promise<BalanceResult> {
-  const activeAddr = context.isSandbox ? context.sandboxAddress : context.walletAddress;
+export async function getBalance(
+  context: AgentContext,
+): Promise<BalanceResult> {
+  const activeAddr = context.isSandbox
+    ? context.sandboxAddress
+    : context.walletAddress;
 
   try {
     const response = await fetch(getRpcUrl(), {
@@ -103,11 +115,18 @@ export async function getTxHistory(
   context: AgentContext,
   limit: number = 10,
 ): Promise<TxHistoryResult[]> {
-  const activeAddr = context.isSandbox ? context.sandboxAddress : context.walletAddress;
+  const activeAddr = context.isSandbox
+    ? context.sandboxAddress
+    : context.walletAddress;
 
   // In production, query Blockscout API or indexer
   // Simplified for now
-  console.log('[wallet.getTxHistory] Getting tx history for:', activeAddr, 'limit:', limit);
+  console.log(
+    '[wallet.getTxHistory] Getting tx history for:',
+    activeAddr,
+    'limit:',
+    limit,
+  );
 
   return []; // TODO: Implement
 }
@@ -118,9 +137,18 @@ export async function sendToken(
   amount: string,
 ): Promise<SendTokenResult> {
   const pk = context.isSandbox ? context.privateKey : context.privateKey; // Use appropriate key
-  const fromAddress = context.isSandbox ? context.sandboxAddress : context.walletAddress;
+  const fromAddress = context.isSandbox
+    ? context.sandboxAddress
+    : context.walletAddress;
 
-  console.log('[wallet.sendToken] Sending', amount, 'INJ from', fromAddress, 'to', toAddress);
+  console.log(
+    '[wallet.sendToken] Sending',
+    amount,
+    'INJ from',
+    fromAddress,
+    'to',
+    toAddress,
+  );
 
   // TODO: Implement actual transaction signing and sending
   // This requires:

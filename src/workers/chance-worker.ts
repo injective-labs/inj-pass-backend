@@ -11,13 +11,22 @@ const ADMIN_API_KEY = process.env.ADMIN_API_KEY ?? '';
 const CHAIN_ID = process.env.WORKER_CHAIN_ID ?? 'injective';
 const STATIC_CHAIN_ID = Number(process.env.WORKER_STATIC_CHAIN_ID ?? '1776');
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? '8000');
-const BLOCK_CONFIRMATIONS = Number(process.env.WORKER_BLOCK_CONFIRMATIONS ?? '2');
+const BLOCK_CONFIRMATIONS = Number(
+  process.env.WORKER_BLOCK_CONFIRMATIONS ?? '2',
+);
 const MAX_BLOCK_RANGE = Number(process.env.WORKER_MAX_BLOCK_RANGE ?? '1200');
-const RECEIPT_FALLBACK_BLOCK_RANGE = Number(process.env.WORKER_RECEIPT_FALLBACK_BLOCK_RANGE ?? '60');
+const RECEIPT_FALLBACK_BLOCK_RANGE = Number(
+  process.env.WORKER_RECEIPT_FALLBACK_BLOCK_RANGE ?? '60',
+);
 const START_BLOCK = Number(process.env.WORKER_START_BLOCK ?? '0');
-const AUTO_CATCH_UP = String(process.env.WORKER_AUTO_CATCH_UP ?? 'true').toLowerCase() !== 'false';
-const AUTO_CATCH_UP_WINDOW = Number(process.env.WORKER_AUTO_CATCH_UP_WINDOW ?? '2000');
-const MAX_LAG_BEFORE_RESET = Number(process.env.WORKER_MAX_LAG_BEFORE_RESET ?? '500000');
+const AUTO_CATCH_UP =
+  String(process.env.WORKER_AUTO_CATCH_UP ?? 'true').toLowerCase() !== 'false';
+const AUTO_CATCH_UP_WINDOW = Number(
+  process.env.WORKER_AUTO_CATCH_UP_WINDOW ?? '2000',
+);
+const MAX_LAG_BEFORE_RESET = Number(
+  process.env.WORKER_MAX_LAG_BEFORE_RESET ?? '500000',
+);
 const STATE_FILE = process.env.WORKER_STATE_FILE
   ? path.resolve(process.cwd(), process.env.WORKER_STATE_FILE)
   : path.resolve(__dirname, '../../.chance-worker-state.json');
@@ -27,12 +36,14 @@ if (!CONTRACT_ADDRESS) throw new Error('CHANCE_CONTRACT_ADDRESS is required');
 if (!BACKEND_API_URL) throw new Error('WORKER_BACKEND_API_URL is required');
 if (!ADMIN_API_KEY) throw new Error('ADMIN_API_KEY is required');
 
-const provider = Number.isFinite(STATIC_CHAIN_ID) && STATIC_CHAIN_ID > 0
-  ? new JsonRpcProvider(RPC_URL, STATIC_CHAIN_ID, { staticNetwork: true })
-  : new JsonRpcProvider(RPC_URL);
+const provider =
+  Number.isFinite(STATIC_CHAIN_ID) && STATIC_CHAIN_ID > 0
+    ? new JsonRpcProvider(RPC_URL, STATIC_CHAIN_ID, { staticNetwork: true })
+    : new JsonRpcProvider(RPC_URL);
 const contract = new Contract(CONTRACT_ADDRESS, chanceManagerAbi, provider);
 const contractAddressLower = CONTRACT_ADDRESS.toLowerCase();
-const chancePurchasedTopic = contract.interface.getEvent('ChancePurchased')?.topicHash;
+const chancePurchasedTopic =
+  contract.interface.getEvent('ChancePurchased')?.topicHash;
 
 let running = true;
 let forceReceiptFallback = false;
@@ -108,7 +119,11 @@ async function processRange(fromBlock: number, toBlock: number) {
   }
 
   try {
-    const events = await contract.queryFilter(contract.filters.ChancePurchased(), fromBlock, toBlock);
+    const events = await contract.queryFilter(
+      contract.filters.ChancePurchased(),
+      fromBlock,
+      toBlock,
+    );
 
     if (events.length === 0) {
       return;
@@ -132,12 +147,24 @@ async function processRange(fromBlock: number, toBlock: number) {
         logIndex: Number(log.index),
       });
 
-      console.log(`[chance-worker] processed tx=${log.transactionHash} buyer=${buyer} plan=${planId} chances=${chances}`, result);
+      console.log(
+        `[chance-worker] processed tx=${log.transactionHash} buyer=${buyer} plan=${planId} chances=${chances}`,
+        result,
+      );
     }
   } catch (error) {
-    const maybe = error as { error?: { code?: number; message?: string }; shortMessage?: string; message?: string };
+    const maybe = error as {
+      error?: { code?: number; message?: string };
+      shortMessage?: string;
+      message?: string;
+    };
     const code = maybe?.error?.code;
-    const message = (maybe?.error?.message ?? maybe?.shortMessage ?? maybe?.message ?? '').toLowerCase();
+    const message = (
+      maybe?.error?.message ??
+      maybe?.shortMessage ??
+      maybe?.message ??
+      ''
+    ).toLowerCase();
 
     // Some Injective RPCs respond like: { code: -32000, message: "block bloom event is not found" }
     if (code === -32000 && message.includes('block bloom event is not found')) {
@@ -147,7 +174,9 @@ async function processRange(fromBlock: number, toBlock: number) {
     // Some providers do not support eth_getLogs; fallback to scanning tx receipts.
     if (code === -32600 || message.includes('method not supported')) {
       forceReceiptFallback = true;
-      console.warn('[chance-worker] eth_getLogs unsupported, switching to receipt fallback mode');
+      console.warn(
+        '[chance-worker] eth_getLogs unsupported, switching to receipt fallback mode',
+      );
       await processRangeFromReceipts(fromBlock, toBlock);
       return;
     }
@@ -163,20 +192,29 @@ async function processRangeFromReceipts(fromBlock: number, toBlock: number) {
 
   for (let blockNumber = fromBlock; blockNumber <= toBlock; blockNumber += 1) {
     const blockHex = `0x${blockNumber.toString(16)}`;
-    const block = await provider.send('eth_getBlockByNumber', [blockHex, false]) as
-      | { transactions?: string[] }
-      | null;
+    const block = (await provider.send('eth_getBlockByNumber', [
+      blockHex,
+      false,
+    ])) as { transactions?: string[] } | null;
 
-    const txHashes = Array.isArray(block?.transactions) ? block.transactions : [];
+    const txHashes = Array.isArray(block?.transactions)
+      ? block.transactions
+      : [];
     if (txHashes.length === 0) continue;
 
     for (const txHash of txHashes) {
       const receipt = await provider.getTransactionReceipt(txHash);
-      if (!receipt || !Array.isArray(receipt.logs) || receipt.logs.length === 0) continue;
+      if (!receipt || !Array.isArray(receipt.logs) || receipt.logs.length === 0)
+        continue;
 
       for (const log of receipt.logs) {
-        if (String(log.address).toLowerCase() !== contractAddressLower) continue;
-        if (!Array.isArray(log.topics) || log.topics[0] !== chancePurchasedTopic) continue;
+        if (String(log.address).toLowerCase() !== contractAddressLower)
+          continue;
+        if (
+          !Array.isArray(log.topics) ||
+          log.topics[0] !== chancePurchasedTopic
+        )
+          continue;
 
         const parsed = contract.interface.parseLog({
           topics: log.topics,
@@ -200,7 +238,10 @@ async function processRangeFromReceipts(fromBlock: number, toBlock: number) {
           logIndex: Number(log.index),
         });
 
-        console.log(`[chance-worker] processed tx=${receipt.hash} buyer=${buyer} plan=${planId} chances=${chances}`, result);
+        console.log(
+          `[chance-worker] processed tx=${receipt.hash} buyer=${buyer} plan=${planId} chances=${chances}`,
+          result,
+        );
       }
     }
   }
@@ -212,19 +253,25 @@ async function bootstrap() {
   const target = Math.max(0, current - BLOCK_CONFIRMATIONS);
 
   if (state.lastProcessedBlock <= 0) {
-    const fallbackStart = START_BLOCK > 0 ? START_BLOCK : Math.max(0, target - AUTO_CATCH_UP_WINDOW);
+    const fallbackStart =
+      START_BLOCK > 0
+        ? START_BLOCK
+        : Math.max(0, target - AUTO_CATCH_UP_WINDOW);
     state = { lastProcessedBlock: fallbackStart };
     saveState(state);
   } else if (AUTO_CATCH_UP && START_BLOCK <= 0) {
     const lag = Math.max(0, target - state.lastProcessedBlock);
     if (lag > MAX_LAG_BEFORE_RESET) {
       const catchUpStart = Math.max(0, target - AUTO_CATCH_UP_WINDOW);
-      console.warn('[chance-worker] stale cursor detected, auto catch-up enabled', {
-        previous: state.lastProcessedBlock,
-        target,
-        lag,
-        resetTo: catchUpStart,
-      });
+      console.warn(
+        '[chance-worker] stale cursor detected, auto catch-up enabled',
+        {
+          previous: state.lastProcessedBlock,
+          target,
+          lag,
+          resetTo: catchUpStart,
+        },
+      );
       state = { lastProcessedBlock: catchUpStart };
       saveState(state);
     }

@@ -19,12 +19,7 @@ export const AI_PROVIDERS = {
     name: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     apiKey: process.env.OPENAI_API_KEY,
-    models: [
-      'gpt-4o',
-      'gpt-4o-mini',
-      'gpt-4-turbo',
-      'gpt-3.5-turbo',
-    ],
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
   },
   openrouter: {
     name: 'OpenRouter',
@@ -43,22 +38,34 @@ export type AIProviderName = keyof typeof AI_PROVIDERS;
 
 export interface AIModelConfig {
   provider: AIProviderName;
-  modelId: string;  // Provider-specific model identifier
+  modelId: string; // Provider-specific model identifier
 }
 
 // Map frontend model names to provider + model ID
 export const MODEL_MAPPING: Record<string, AIModelConfig> = {
   // Anthropic models
-  'claude-sonnet-4-6': { provider: 'anthropic', modelId: 'claude-sonnet-4-6-20250514' },
-  'claude-sonnet-4-5': { provider: 'anthropic', modelId: 'claude-sonnet-4-5-20250514' },
-  'claude-3.5-sonnet': { provider: 'anthropic', modelId: 'claude-3-5-sonnet-20241022' },
+  'claude-sonnet-4-6': {
+    provider: 'anthropic',
+    modelId: 'claude-sonnet-4-6-20250514',
+  },
+  'claude-sonnet-4-5': {
+    provider: 'anthropic',
+    modelId: 'claude-sonnet-4-5-20250514',
+  },
+  'claude-3.5-sonnet': {
+    provider: 'anthropic',
+    modelId: 'claude-3-5-sonnet-20241022',
+  },
 
   // OpenAI models
   'gpt-4o': { provider: 'openai', modelId: 'gpt-4o' },
   'gpt-4o-mini': { provider: 'openai', modelId: 'gpt-4o-mini' },
 
   // OpenRouter models (use prefix format)
-  'claude-3.5-sonnet-or': { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' },
+  'claude-3.5-sonnet-or': {
+    provider: 'openrouter',
+    modelId: 'anthropic/claude-3.5-sonnet',
+  },
   'gpt-4o-or': { provider: 'openrouter', modelId: 'openai/gpt-4o' },
 };
 

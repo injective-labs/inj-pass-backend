@@ -43,7 +43,9 @@ export async function getSwapQuote(
 
   // Simulate output (in production, get from contract)
   const expectedOutput = (parseFloat(amount) * 0.95).toFixed(6);
-  const minOutput = (parseFloat(expectedOutput) * (1 - slippage / 100)).toFixed(6);
+  const minOutput = (parseFloat(expectedOutput) * (1 - slippage / 100)).toFixed(
+    6,
+  );
 
   return {
     fromToken,
@@ -64,10 +66,17 @@ export async function executeSwap(
   slippage: number = 0.5,
   expectedOutput?: string,
 ): Promise<ExecuteSwapResult> {
-  const fromAddress = context.isSandbox ? context.sandboxAddress : context.walletAddress;
+  const fromAddress = context.isSandbox
+    ? context.sandboxAddress
+    : context.walletAddress;
   const pk = context.isSandbox ? context.privateKey : context.privateKey;
 
-  console.log('[swap.executeSwap]', { fromToken, toToken, amount, fromAddress });
+  console.log('[swap.executeSwap]', {
+    fromToken,
+    toToken,
+    amount,
+    fromAddress,
+  });
 
   // TODO: Implement actual swap execution
   // This requires:

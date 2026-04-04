@@ -19,7 +19,9 @@ export class ReferralService {
   /**
    * Get user's invite code
    */
-  async getInviteCode(credentialId: string): Promise<{ inviteCode: string } | null> {
+  async getInviteCode(
+    credentialId: string,
+  ): Promise<{ inviteCode: string } | null> {
     const user = await this.userService.getUserByCredentialId(credentialId);
     if (!user) {
       return null;
@@ -31,9 +33,10 @@ export class ReferralService {
   /**
    * Validate invite code
    */
-  async validateInviteCode(
-    inviteCode: string,
-  ): Promise<{ valid: boolean; inviterInfo?: { inviteCode: string; ninjaBalance: number } }> {
+  async validateInviteCode(inviteCode: string): Promise<{
+    valid: boolean;
+    inviterInfo?: { inviteCode: string; ninjaBalance: number };
+  }> {
     return this.userService.validateInviteCode(inviteCode);
   }
 
@@ -89,7 +92,11 @@ export class ReferralService {
     const rows = await this.referralLogRepository
       .createQueryBuilder('log')
       .innerJoin(User, 'invitee', 'invitee.id = log.inviteeId')
-      .leftJoin(PasskeyCredential, 'credential', 'credential.credentialId = invitee.credentialId')
+      .leftJoin(
+        PasskeyCredential,
+        'credential',
+        'credential.credentialId = invitee.credentialId',
+      )
       .select('log.inviteeId', 'inviteeId')
       .addSelect('log.inviteeReward', 'inviteeReward')
       .addSelect('log.createdAt', 'createdAt')
