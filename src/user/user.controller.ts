@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Logger } from '@nestjs/common';
+import { Controller, Get, Headers, Logger, UnauthorizedException } from '@nestjs/common';
 import { UserService } from './user.service';
 import { AuthService } from '../auth/auth.service';
 import { User } from './entities/user.entity';
@@ -33,13 +33,11 @@ export class UserController {
   async getProfile(@Headers('authorization') authHeader: string) {
     const credentialId = await this.getCredentialId(authHeader);
     if (!credentialId) {
-      return null;
+      throw new UnauthorizedException('Unauthorized');
     }
 
-    const user = await this.userService.getUserByCredentialId(credentialId);
-    if (!user) {
-      return null;
-    }
+    // Backfill missing users row for valid sessions created before users table flow.
+    const user = await this.userService.ensureUserExists(credentialId);
 
     return {
       id: user.id,
