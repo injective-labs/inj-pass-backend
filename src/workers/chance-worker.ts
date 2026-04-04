@@ -9,6 +9,7 @@ const CONTRACT_ADDRESS = process.env.CHANCE_CONTRACT_ADDRESS ?? '';
 const BACKEND_API_URL = process.env.WORKER_BACKEND_API_URL ?? '';
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY ?? '';
 const CHAIN_ID = process.env.WORKER_CHAIN_ID ?? 'injective';
+const STATIC_CHAIN_ID = Number(process.env.WORKER_STATIC_CHAIN_ID ?? '1776');
 const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS ?? '8000');
 const BLOCK_CONFIRMATIONS = Number(process.env.WORKER_BLOCK_CONFIRMATIONS ?? '2');
 const MAX_BLOCK_RANGE = Number(process.env.WORKER_MAX_BLOCK_RANGE ?? '1200');
@@ -26,7 +27,9 @@ if (!CONTRACT_ADDRESS) throw new Error('CHANCE_CONTRACT_ADDRESS is required');
 if (!BACKEND_API_URL) throw new Error('WORKER_BACKEND_API_URL is required');
 if (!ADMIN_API_KEY) throw new Error('ADMIN_API_KEY is required');
 
-const provider = new JsonRpcProvider(RPC_URL);
+const provider = Number.isFinite(STATIC_CHAIN_ID) && STATIC_CHAIN_ID > 0
+  ? new JsonRpcProvider(RPC_URL, STATIC_CHAIN_ID, { staticNetwork: true })
+  : new JsonRpcProvider(RPC_URL);
 const contract = new Contract(CONTRACT_ADDRESS, chanceManagerAbi, provider);
 const contractAddressLower = CONTRACT_ADDRESS.toLowerCase();
 const chancePurchasedTopic = contract.interface.getEvent('ChancePurchased')?.topicHash;
