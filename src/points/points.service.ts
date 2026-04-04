@@ -138,7 +138,11 @@ export class PointsService {
   async syncNinja(
     credentialId: string,
     earnedNinja: number,
-    options?: { consumeChance?: boolean; chanceCooldownSeconds?: number },
+    options?: {
+      consumeChance?: boolean;
+      chanceCooldownSeconds?: number;
+      walletAddress?: string;
+    },
   ): Promise<{
     balance: number;
     transactionId: number;
@@ -153,7 +157,28 @@ export class PointsService {
     this.logger.log(
       `Syncing ${safeEarnedNinja} NINJA for user: ${credentialId.substring(0, 8)}...`,
     );
-    const consumeChance = Boolean(options?.consumeChance);
+    let consumeChance = Boolean(options?.consumeChance);
+    if (!consumeChance && options?.walletAddress) {
+      try {
+        const cachedState = await this.getNinjaMinerState(
+          credentialId,
+          options.walletAddress,
+        );
+        if (cachedState?.sessionUsesChance && cachedState.sessionEarned > 0) {
+          consumeChance = true;
+          this.logger.warn(
+            `consumeChance inferred from Redis state for user ${credentialId.substring(0, 8)}...`,
+          );
+        }
+      } catch (error: unknown) {
+        this.logger.warn(
+          `Failed to infer consumeChance from Redis: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    this.logger.log(
+      `syncNinja consumeChance=${consumeChance} wallet=${options?.walletAddress ?? 'n/a'} user=${credentialId.substring(0, 8)}...`,
+    );
     const safeChanceCooldownSeconds = Math.max(
       1,
       Math.floor(Number(options?.chanceCooldownSeconds) || 20),
@@ -205,11 +230,16 @@ export class PointsService {
         }
 
         if (nextChanceCooldownEndsAt > now) {
-          throw new Error('Chance cooldown active');
+          this.logger.warn(
+            `Chance cooldown already active during sync settlement, proceeding with deduction for user ${credentialId.substring(0, 8)}...`,
+          );
         }
 
         nextChanceRemaining -= 1;
-        nextChanceCooldownEndsAt = now + safeChanceCooldownSeconds * 1000;
+        nextChanceCooldownEndsAt = Math.max(
+          nextChanceCooldownEndsAt,
+          now + safeChanceCooldownSeconds * 1000,
+        );
       }
 
       const newBalance = safeCurrentBalance + safeEarnedNinja;

@@ -30,6 +30,10 @@ class SyncPointsDto {
   @IsOptional()
   consumeChance?: boolean;
 
+  @IsOptional()
+  @IsString()
+  walletAddress?: string;
+
   @Type(() => Number)
   @IsOptional()
   @IsNumber({ allowNaN: false, allowInfinity: false })
@@ -156,6 +160,7 @@ export class PointsController {
         {
           consumeChance: Boolean(dto.consumeChance),
           chanceCooldownSeconds: dto.chanceCooldownSeconds,
+          walletAddress: dto.walletAddress,
         },
       );
       return { success: true, ...result };
