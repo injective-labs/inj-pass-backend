@@ -14,6 +14,7 @@ import {
   IsNumber,
   IsOptional,
   IsPositive,
+  IsBoolean,
   IsString,
   Min,
   ValidateNested,
@@ -73,6 +74,10 @@ class NinjaMinerStateDto {
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
   sessionEarned!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  sessionUsesChance?: boolean;
 
   @Type(() => Number)
   @IsOptional()
@@ -222,6 +227,7 @@ export class PointsController {
         sessionStartedAt: dto.state.sessionStartedAt,
         sessionEndsAt: dto.state.sessionEndsAt,
         sessionEarned: dto.state.sessionEarned,
+        sessionUsesChance: Boolean(dto.state.sessionUsesChance),
         cooldownEndsAt: dto.state.cooldownEndsAt,
       },
     );

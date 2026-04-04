@@ -17,6 +17,7 @@ export interface NinjaMinerState {
   sessionStartedAt: number;
   sessionEndsAt: number;
   sessionEarned: number;
+  sessionUsesChance?: boolean;
   cooldownEndsAt?: number;
 }
 
@@ -89,6 +90,7 @@ export class PointsService {
         Math.floor(toFiniteNumber(state.sessionEndsAt, 0)),
       ),
       sessionEarned: Math.max(0, toFiniteNumber(state.sessionEarned, 0)),
+      sessionUsesChance: Boolean(state.sessionUsesChance),
     };
   }
 
