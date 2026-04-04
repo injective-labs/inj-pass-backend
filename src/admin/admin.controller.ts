@@ -49,15 +49,48 @@ class AdminPasskeyCredentialsQueryDto {
 class AdjustBalanceDto {
   @Type(() => Number)
   @IsNumber()
-  amount: number;
+  amount!: number;
 
   @IsString()
   @IsIn(['set', 'increment'])
-  mode: 'set' | 'increment';
+  mode!: 'set' | 'increment';
 
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+class IngestChancePurchaseDto {
+  @IsString()
+  txHash!: string;
+
+  @IsString()
+  walletAddress!: string;
+
+  @IsString()
+  productId!: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  chanceAmount!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  cooldownEndsAt!: number;
+
+  @IsOptional()
+  @IsString()
+  chainId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  blockNumber?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  logIndex?: number;
 }
 
 @UseGuards(AdminGuard)
@@ -102,5 +135,24 @@ export class AdminController {
     }
 
     return result;
+  }
+
+  @Patch('chance/purchase-webhook')
+  async ingestChancePurchase(@Body() body: IngestChancePurchaseDto) {
+    const result = await this.adminService.ingestChancePurchase({
+      txHash: body.txHash,
+      walletAddress: body.walletAddress,
+      productId: body.productId,
+      chanceAmount: body.chanceAmount,
+      cooldownEndsAt: body.cooldownEndsAt,
+      chainId: body.chainId,
+      blockNumber: body.blockNumber,
+      logIndex: body.logIndex,
+    });
+
+    return {
+      success: true,
+      ...result,
+    };
   }
 }

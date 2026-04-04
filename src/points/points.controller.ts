@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Query, Headers, Logger } from '@nestjs/common';
-import { PointsService, NinjaMinerState } from './points.service';
+import { PointsService } from './points.service';
 import { AuthService } from '../auth/auth.service';
 import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, IsPositive, IsString, Min, ValidateNested } from 'class-validator';
@@ -10,42 +10,77 @@ class SyncPointsDto {
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @IsPositive()
   earnedNinja?: number;
+
+  @IsOptional()
+  consumeChance?: boolean;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(1)
+  chanceCooldownSeconds?: number;
 }
 
-class NinjaMinerStateDto implements NinjaMinerState {
+class NinjaMinerStateDto {
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
-  ninjaBalance: number;
+  ninjaBalance!: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  chanceRemaining: number = 0;
 
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
-  cooldownEndsAt: number;
+  tapCooldownEndsAt!: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  chanceCooldownEndsAt: number = 0;
 
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
-  sessionStartedAt: number;
+  sessionStartedAt!: number;
 
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
-  sessionEndsAt: number;
+  sessionEndsAt!: number;
 
   @Type(() => Number)
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
-  sessionEarned: number;
+  sessionEarned!: number;
+
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  cooldownEndsAt?: number;
 }
 
 class SaveNinjaMinerStateDto {
   @IsString()
-  walletAddress: string;
+  walletAddress!: string;
 
   @ValidateNested()
   @Type(() => NinjaMinerStateDto)
-  state: NinjaMinerStateDto;
+  state!: NinjaMinerStateDto;
+}
+
+class ConsumeChanceDto {
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(1)
+  cooldownSeconds?: number;
 }
 
 @Controller('points')
@@ -93,11 +128,15 @@ export class PointsController {
     this.logger.log(`Sync points request: ${earnedNinja} NINJA`);
 
     try {
-      const result = await this.pointsService.syncNinja(credentialId, earnedNinja);
+      const result = await this.pointsService.syncNinja(credentialId, earnedNinja, {
+        consumeChance: Boolean(dto.consumeChance),
+        chanceCooldownSeconds: dto.chanceCooldownSeconds,
+      });
       return { success: true, ...result };
-    } catch (error) {
-      this.logger.error(`Sync points failed: ${error.message}`);
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Sync failed';
+      this.logger.error(`Sync points failed: ${message}`);
+      return { success: false, error: message };
     }
   }
 
@@ -151,10 +190,43 @@ export class PointsController {
     const state = await this.pointsService.saveNinjaMinerState(
       credentialId,
       dto.walletAddress,
-      dto.state,
+      {
+        ninjaBalance: dto.state.ninjaBalance,
+        chanceRemaining: dto.state.chanceRemaining ?? 0,
+        tapCooldownEndsAt: dto.state.tapCooldownEndsAt,
+        chanceCooldownEndsAt: dto.state.chanceCooldownEndsAt ?? 0,
+        sessionStartedAt: dto.state.sessionStartedAt,
+        sessionEndsAt: dto.state.sessionEndsAt,
+        sessionEarned: dto.state.sessionEarned,
+        cooldownEndsAt: dto.state.cooldownEndsAt,
+      },
     );
 
     return { success: true, state };
+  }
+
+  /**
+   * Consume one chance on backend so chance usage is persisted.
+   */
+  @Post('chance/consume')
+  async consumeChance(
+    @Headers('authorization') authHeader: string,
+    @Body() dto: ConsumeChanceDto,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const cooldownSeconds = Number(dto?.cooldownSeconds ?? 20);
+
+    try {
+      return await this.pointsService.consumeChance(credentialId, cooldownSeconds);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Consume chance failed';
+      this.logger.error(`Consume chance failed: ${message}`);
+      return { success: false, error: message };
+    }
   }
 
   /**

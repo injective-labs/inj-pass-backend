@@ -11,10 +11,13 @@ import { UserService } from '../user/user.service';
 
 export interface NinjaMinerState {
   ninjaBalance: number;
-  cooldownEndsAt: number;
+  chanceRemaining: number;
+  tapCooldownEndsAt: number;
+  chanceCooldownEndsAt: number;
   sessionStartedAt: number;
   sessionEndsAt: number;
   sessionEarned: number;
+  cooldownEndsAt?: number;
 }
 
 @Injectable()
@@ -47,9 +50,18 @@ export class PointsService {
       return Number.isFinite(next) ? next : fallback;
     };
 
+    const legacyCooldownEndsAt = typeof state.cooldownEndsAt !== 'undefined'
+      ? state.cooldownEndsAt
+      : undefined;
+    const tapCooldownEndsAt = typeof state.tapCooldownEndsAt !== 'undefined'
+      ? state.tapCooldownEndsAt
+      : legacyCooldownEndsAt;
+
     return {
       ninjaBalance: Math.max(0, toFiniteNumber(state.ninjaBalance, 0)),
-      cooldownEndsAt: Math.max(0, Math.floor(toFiniteNumber(state.cooldownEndsAt, 0))),
+      chanceRemaining: Math.max(0, Math.floor(toFiniteNumber(state.chanceRemaining, 0))),
+      tapCooldownEndsAt: Math.max(0, Math.floor(toFiniteNumber(tapCooldownEndsAt, 0))),
+      chanceCooldownEndsAt: Math.max(0, Math.floor(toFiniteNumber(state.chanceCooldownEndsAt, 0))),
       sessionStartedAt: Math.max(0, Math.floor(toFiniteNumber(state.sessionStartedAt, 0))),
       sessionEndsAt: Math.max(0, Math.floor(toFiniteNumber(state.sessionEndsAt, 0))),
       sessionEarned: Math.max(0, toFiniteNumber(state.sessionEarned, 0)),
@@ -100,37 +112,79 @@ export class PointsService {
   async syncNinja(
     credentialId: string,
     earnedNinja: number,
-  ): Promise<{ balance: number; transactionId: number }> {
+    options?: { consumeChance?: boolean; chanceCooldownSeconds?: number },
+  ): Promise<{ balance: number; transactionId: number; chanceRemaining?: number; chanceCooldownEndsAt?: number }> {
     const safeEarnedNinja = Number(earnedNinja);
     if (!Number.isFinite(safeEarnedNinja) || safeEarnedNinja <= 0) {
       throw new Error('Invalid earnedNinja');
     }
 
     this.logger.log(`Syncing ${safeEarnedNinja} NINJA for user: ${credentialId.substring(0, 8)}...`);
+    const consumeChance = Boolean(options?.consumeChance);
+    const safeChanceCooldownSeconds = Math.max(1, Math.floor(Number(options?.chanceCooldownSeconds) || 20));
 
-    const user = await this.userService.ensureUserExists(credentialId);
+    await this.userService.ensureUserExists(credentialId);
 
-    const currentBalance = Number(user.ninjaBalance);
-    const safeCurrentBalance = Number.isFinite(currentBalance) ? currentBalance : 0;
-    const newBalance = safeCurrentBalance + safeEarnedNinja;
+    return this.userRepository.manager.transaction(async (manager) => {
+      const txUserRepo = manager.getRepository(User);
+      const txPointsRepo = manager.getRepository(PointsTransaction);
 
-    // Update user balance
-    user.ninjaBalance = newBalance;
-    await this.userRepository.save(user);
+      const user = await txUserRepo
+        .createQueryBuilder('user')
+        .setLock('pessimistic_write')
+        .where('user.credentialId = :credentialId', { credentialId })
+        .getOne();
 
-    // Record transaction
-    const transaction = await this.pointsTransactionRepository.save({
-      userId: user.id,
-      type: 'tap_game',
-      amount: safeEarnedNinja,
-      balanceAfter: newBalance,
-      metadata: {},
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      const now = Date.now();
+      const currentBalance = Number(user.ninjaBalance);
+      const safeCurrentBalance = Number.isFinite(currentBalance) ? currentBalance : 0;
+
+      let nextChanceRemaining = Math.max(0, Math.floor(Number((user as User & { chanceRemaining?: number }).chanceRemaining) || 0));
+      let nextChanceCooldownEndsAt = Math.max(0, Math.floor(Number((user as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt) || 0));
+
+      if (consumeChance) {
+        if (nextChanceRemaining <= 0) {
+          throw new Error('No chance left');
+        }
+
+        if (nextChanceCooldownEndsAt > now) {
+          throw new Error('Chance cooldown active');
+        }
+
+        nextChanceRemaining -= 1;
+        nextChanceCooldownEndsAt = now + safeChanceCooldownSeconds * 1000;
+      }
+
+      const newBalance = safeCurrentBalance + safeEarnedNinja;
+      user.ninjaBalance = newBalance;
+      if (consumeChance) {
+        (user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceRemaining = nextChanceRemaining;
+        (user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceCooldownEndsAt = nextChanceCooldownEndsAt;
+      }
+
+      await txUserRepo.save(user);
+
+      const transaction = await txPointsRepo.save({
+        userId: user.id,
+        type: 'tap_game',
+        amount: safeEarnedNinja,
+        balanceAfter: newBalance,
+        metadata: {
+          consumeChance,
+        },
+      });
+
+      return {
+        balance: newBalance,
+        transactionId: transaction.id,
+        chanceRemaining: nextChanceRemaining,
+        chanceCooldownEndsAt: nextChanceCooldownEndsAt,
+      };
     });
-
-    return {
-      balance: newBalance,
-      transactionId: transaction.id,
-    };
   }
 
   /**
@@ -177,6 +231,61 @@ export class PointsService {
     });
 
     return { transactions, total };
+  }
+
+  async consumeChance(
+    credentialId: string,
+    cooldownSeconds = 20,
+  ): Promise<{ success: boolean; chanceRemaining?: number; chanceCooldownEndsAt?: number; error?: string }> {
+    const safeCooldownSeconds = Math.max(1, Math.floor(Number(cooldownSeconds) || 20));
+    const now = Date.now();
+
+    return this.userRepository.manager.transaction(async (manager) => {
+      const txUserRepo = manager.getRepository(User);
+      const user = await txUserRepo
+        .createQueryBuilder('user')
+        .setLock('pessimistic_write')
+        .where('user.credentialId = :credentialId', { credentialId })
+        .getOne();
+
+      if (!user) {
+        return { success: false, error: 'User not found' };
+      }
+
+      const currentChance = Math.max(0, Math.floor(Number((user as User & { chanceRemaining?: number }).chanceRemaining) || 0));
+      const currentCooldownEndsAt = Math.max(0, Math.floor(Number((user as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt) || 0));
+
+      if (currentChance <= 0) {
+        return {
+          success: false,
+          error: 'No chance left',
+          chanceRemaining: 0,
+          chanceCooldownEndsAt: currentCooldownEndsAt,
+        };
+      }
+
+      if (currentCooldownEndsAt > now) {
+        return {
+          success: false,
+          error: 'Chance cooldown active',
+          chanceRemaining: currentChance,
+          chanceCooldownEndsAt: currentCooldownEndsAt,
+        };
+      }
+
+      const nextChance = currentChance - 1;
+      const nextCooldownEndsAt = now + safeCooldownSeconds * 1000;
+
+      (user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceRemaining = nextChance;
+      (user as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceCooldownEndsAt = nextCooldownEndsAt;
+      await txUserRepo.save(user);
+
+      return {
+        success: true,
+        chanceRemaining: nextChance,
+        chanceCooldownEndsAt: nextCooldownEndsAt,
+      };
+    });
   }
 
   /**

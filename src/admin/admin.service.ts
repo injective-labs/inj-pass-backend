@@ -5,6 +5,8 @@ import { User } from '../user/entities/user.entity';
 import { PasskeyCredential } from '../passkey/entities/credential.entity';
 import { PointsTransaction } from '../points/entities/points-transaction.entity';
 import { AiUsageLog } from '../points/entities/ai-usage-log.entity';
+import { ChanceTransaction } from '../chance/entities/chance-transaction.entity';
+import { UserService } from '../user/user.service';
 
 type SearchUsersParams = {
   query?: string;
@@ -25,12 +27,25 @@ type AdjustBalanceParams = {
   reason?: string;
 };
 
+type IngestChancePurchaseParams = {
+  txHash: string;
+  walletAddress: string;
+  productId: string;
+  chanceAmount: number;
+  cooldownEndsAt: number;
+  chainId?: string;
+  blockNumber?: number;
+  logIndex?: number;
+};
+
 type UserListRow = {
   id: number;
   credentialId: string;
   inviteCode: string;
   invitedBy: string | null;
   ninjaBalance: number;
+  chanceRemaining: number;
+  chanceCooldownEndsAt: number;
   walletAddress: string | null;
   walletName: string | null;
   createdAt: Date;
@@ -66,6 +81,9 @@ export class AdminService {
     private readonly pointsTransactionRepository: Repository<PointsTransaction>,
     @InjectRepository(AiUsageLog)
     private readonly aiUsageLogRepository: Repository<AiUsageLog>,
+    @InjectRepository(ChanceTransaction)
+    private readonly chanceTransactionRepository: Repository<ChanceTransaction>,
+    private readonly userService: UserService,
   ) {}
 
   private normalizeNumber(value: unknown, fallback = 0): number {
@@ -98,6 +116,8 @@ export class AdminService {
         'user.inviteCode AS "inviteCode"',
         'user.invitedBy AS "invitedBy"',
         'user.ninjaBalance AS "ninjaBalance"',
+        'user.chanceRemaining AS "chanceRemaining"',
+        'user.chanceCooldownEndsAt AS "chanceCooldownEndsAt"',
         'user.createdAt AS "createdAt"',
         'user.updatedAt AS "updatedAt"',
         'credential.walletAddress AS "walletAddress"',
@@ -155,6 +175,8 @@ export class AdminService {
         inviteCode: row.inviteCode,
         invitedBy: row.invitedBy,
         ninjaBalance: this.normalizeNumber(row.ninjaBalance),
+        chanceRemaining: this.normalizeNumber(row.chanceRemaining),
+        chanceCooldownEndsAt: this.normalizeNumber(row.chanceCooldownEndsAt),
         walletAddress: row.walletAddress,
         walletName: row.walletName,
         createdAt: new Date(row.createdAt),
@@ -278,6 +300,8 @@ export class AdminService {
         inviteCode: user.inviteCode,
         invitedBy: user.invitedBy,
         ninjaBalance: this.normalizeNumber(user.ninjaBalance),
+        chanceRemaining: this.normalizeNumber((user as User & { chanceRemaining?: number }).chanceRemaining),
+        chanceCooldownEndsAt: this.normalizeNumber((user as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt),
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         walletAddress: credential?.walletAddress ?? null,
@@ -345,6 +369,105 @@ export class AdminService {
       delta,
       transactionId: transaction.id,
     };
+  }
+
+  async ingestChancePurchase(params: IngestChancePurchaseParams) {
+    const normalizedTxHash = params.txHash.trim().toLowerCase();
+    const normalizedWalletAddress = params.walletAddress.trim().toLowerCase();
+    const normalizedChanceAmount = Math.max(0, Math.floor(this.normalizeNumber(params.chanceAmount, 0)));
+    const normalizedCooldownEndsAt = Math.max(0, Math.floor(this.normalizeNumber(params.cooldownEndsAt, 0)));
+
+    let user = await this.userRepository.findOne({
+      where: { walletAddress: normalizedWalletAddress },
+    });
+
+    if (!user) {
+      const credential = await this.credentialRepository
+        .createQueryBuilder('credential')
+        .where('LOWER(credential.walletAddress) = :walletAddress', {
+          walletAddress: normalizedWalletAddress,
+        })
+        .getOne();
+
+      if (credential?.credentialId) {
+        user = await this.userService.ensureUserExistsWithWalletAddress(
+          credential.credentialId,
+          normalizedWalletAddress,
+        );
+      }
+    }
+
+    if (!user) {
+      throw new Error(`User not found for walletAddress: ${normalizedWalletAddress}`);
+    }
+
+    return this.userRepository.manager.transaction(async (manager) => {
+      const txUserRepo = manager.getRepository(User);
+      const txChanceRepo = manager.getRepository(ChanceTransaction);
+
+      const lockedUser = await txUserRepo
+        .createQueryBuilder('user')
+        .setLock('pessimistic_write')
+        .where('user.id = :id', { id: user.id })
+        .getOne();
+
+      if (!lockedUser) {
+        throw new Error(`User disappeared during processing: ${user.id}`);
+      }
+
+      const currentChance = this.normalizeNumber((lockedUser as User & { chanceRemaining?: number }).chanceRemaining, 0);
+      const nextChance = Math.max(0, currentChance + normalizedChanceAmount);
+      const currentCooldown = this.normalizeNumber((lockedUser as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt, 0);
+      const nextCooldown = Math.max(currentCooldown, normalizedCooldownEndsAt);
+
+      const insertResult = await txChanceRepo
+        .createQueryBuilder()
+        .insert()
+        .into(ChanceTransaction)
+        .values({
+          userId: lockedUser.id,
+          txHash: normalizedTxHash,
+          chainId: params.chainId ?? null,
+          productId: params.productId,
+          chanceAmount: normalizedChanceAmount,
+          balanceAfter: nextChance,
+          status: 'confirmed',
+          metadata: {
+            walletAddress: normalizedWalletAddress,
+            blockNumber: params.blockNumber ?? undefined,
+            logIndex: params.logIndex ?? undefined,
+          },
+        })
+        .orIgnore()
+        .returning(['id', 'txHash', 'userId'])
+        .execute();
+
+      const insertedTx = insertResult.generatedMaps[0] as
+        | { id?: number; txHash?: string; userId?: number }
+        | undefined;
+
+      if (!insertedTx?.id) {
+        const existing = await txChanceRepo.findOne({ where: { txHash: normalizedTxHash } });
+        return {
+          duplicate: true,
+          userId: existing?.userId ?? lockedUser.id,
+          txHash: existing?.txHash ?? normalizedTxHash,
+        };
+      }
+
+      (lockedUser as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceRemaining = nextChance;
+      (lockedUser as User & { chanceRemaining: number; chanceCooldownEndsAt: number }).chanceCooldownEndsAt = nextCooldown;
+      await txUserRepo.save(lockedUser);
+
+      return {
+        duplicate: false,
+        userId: lockedUser.id,
+        txHash: normalizedTxHash,
+        chanceBalance: nextChance,
+        chanceCooldownEndsAt: nextCooldown,
+        chanceTransactionId: insertedTx.id,
+      };
+    });
   }
 
   private async getAiUsageSummaryMap(userIds: number[]) {

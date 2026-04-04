@@ -1,6 +1,7 @@
 import { Controller, Get, Headers, Logger } from '@nestjs/common';
 import { UserService } from './user.service';
 import { AuthService } from '../auth/auth.service';
+import { User } from './entities/user.entity';
 
 @Controller('user')
 export class UserController {
@@ -45,6 +46,8 @@ export class UserController {
       inviteCode: user.inviteCode,
       invitedBy: user.invitedBy,
       ninjaBalance: Number(user.ninjaBalance),
+      chanceRemaining: Number((user as User & { chanceRemaining?: number }).chanceRemaining ?? 0),
+      chanceCooldownEndsAt: Number((user as User & { chanceCooldownEndsAt?: number }).chanceCooldownEndsAt ?? 0),
       createdAt: user.createdAt,
     };
   }

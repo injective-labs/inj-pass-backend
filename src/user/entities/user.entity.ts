@@ -31,6 +31,12 @@ export class User {
   @Column({ name: 'ninjaBalance', type: 'decimal', precision: 20, scale: 2, default: 0 })
   ninjaBalance: number;
 
+  @Column({ name: 'chanceRemaining', type: 'integer', default: 0 })
+  chanceRemaining: number;
+
+  @Column({ name: 'chanceCooldownEndsAt', type: 'bigint', default: 0 })
+  chanceCooldownEndsAt: number;
+
   @Column({ name: 'walletAddress', type: 'varchar', length: 100, unique: true, nullable: true })
   walletAddress: string | null;
 
