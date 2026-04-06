@@ -5,7 +5,7 @@
 
 export const POINTS_CONFIG = {
   // Initial NINJA bonus for new users
-  INITIAL_BONUS: 0,
+  INITIAL_BONUS: 5,
 
   // Tap Game reward range (per tap)
   TAP_GAME: {

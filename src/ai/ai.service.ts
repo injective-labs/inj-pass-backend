@@ -185,7 +185,7 @@ export class AIService {
     try {
       await this.aiUsageLogRepository.save({
         userId: user.id,
-        model: billableModel,
+        model: request.model,
         inputTokens,
         outputTokens,
         costNinja: cost,

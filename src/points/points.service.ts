@@ -158,13 +158,18 @@ export class PointsService {
       `Syncing ${safeEarnedNinja} NINJA for user: ${credentialId.substring(0, 8)}...`,
     );
     let consumeChance = Boolean(options?.consumeChance);
-    if (!consumeChance && options?.walletAddress) {
+    let cachedState: NinjaMinerState | null = null;
+    if (options?.walletAddress) {
       try {
-        const cachedState = await this.getNinjaMinerState(
+        cachedState = await this.getNinjaMinerState(
           credentialId,
           options.walletAddress,
         );
-        if (cachedState?.sessionUsesChance && cachedState.sessionEarned > 0) {
+        if (
+          !consumeChance &&
+          cachedState?.sessionUsesChance &&
+          cachedState.sessionEarned > 0
+        ) {
           consumeChance = true;
           this.logger.warn(
             `consumeChance inferred from Redis state for user ${credentialId.substring(0, 8)}...`,
@@ -236,9 +241,17 @@ export class PointsService {
         }
 
         nextChanceRemaining -= 1;
+        const cachedCooldownEndsAt = Math.max(
+          0,
+          Math.floor(Number(cachedState?.chanceCooldownEndsAt) || 0),
+        );
+        const cooldownTarget =
+          cachedCooldownEndsAt > now
+            ? cachedCooldownEndsAt
+            : now + safeChanceCooldownSeconds * 1000;
         nextChanceCooldownEndsAt = Math.max(
           nextChanceCooldownEndsAt,
-          now + safeChanceCooldownSeconds * 1000,
+          cooldownTarget,
         );
       }
 
