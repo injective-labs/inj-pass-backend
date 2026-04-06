@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  UnauthorizedException,
+  Logger,
+} from '@nestjs/common';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -13,6 +18,7 @@ import type {
 } from '@simplewebauthn/server';
 import { ChallengeStorageService } from './challenge-storage.service';
 import { AuthService } from '../auth/auth.service';
+import { UserService } from '../user/user.service';
 import {
   ChallengeRequestDto,
   ChallengeResponseDto,
@@ -22,6 +28,7 @@ import {
 
 @Injectable()
 export class PasskeyService {
+  private readonly logger = new Logger(PasskeyService.name);
   private readonly rpName = 'Injective Pass';
   private readonly rpId: string;
   private readonly allowedOrigins: string[];
@@ -29,11 +36,12 @@ export class PasskeyService {
   constructor(
     private readonly challengeStorage: ChallengeStorageService,
     private readonly authService: AuthService,
+    private readonly userService: UserService,
   ) {
     if (!process.env.RP_ID) {
       throw new Error('RP_ID environment variable is required');
     }
-    const origins = process.env.ORIGINS?.split(',').map(o => o.trim()) || [];
+    const origins = process.env.ORIGINS?.split(',').map((o) => o.trim()) || [];
     if (origins.length === 0) {
       throw new Error('ORIGINS environment variable is required');
     }
@@ -44,7 +52,9 @@ export class PasskeyService {
   /**
    * Generate challenge for registration or authentication
    */
-  async generateChallenge(dto: ChallengeRequestDto): Promise<ChallengeResponseDto> {
+  async generateChallenge(
+    dto: ChallengeRequestDto,
+  ): Promise<ChallengeResponseDto> {
     try {
       let challenge: string;
 
@@ -98,7 +108,7 @@ export class PasskeyService {
     try {
       // Retrieve and validate challenge (async)
       const storedChallenge = await this.challengeStorage.get(dto.challenge);
-      
+
       if (!storedChallenge) {
         throw new UnauthorizedException('Challenge not found or expired');
       }
@@ -141,8 +151,22 @@ export class PasskeyService {
           );
         }
 
+        // Create user record with invite code and initial NINJA balance
+        // If invite code provided, bind invitation relationship
+        if (credentialId) {
+          const user = await this.userService.createUser(
+            credentialId,
+            dto.inviteCode,
+            dto.walletAddress,
+          );
+          this.logger.log(`User created via passkey registration: ${user.id}`);
+        }
+
         // Generate session token (30-minute validity)
-        const token = await this.authService.generateToken(credentialId, storedChallenge.userId);
+        const token = await this.authService.generateToken(
+          credentialId,
+          storedChallenge.userId,
+        );
 
         return {
           success: true,
@@ -161,8 +185,10 @@ export class PasskeyService {
         }
 
         // Look up stored credential (async)
-        const storedCredential = await this.challengeStorage.getCredential(credential.id);
-        
+        const storedCredential = await this.challengeStorage.getCredential(
+          credential.id,
+        );
+
         if (!storedCredential) {
           throw new UnauthorizedException('Credential not found');
         }
@@ -189,8 +215,17 @@ export class PasskeyService {
           );
         }
 
+        // Backfill users row for credentials created before the NINJA user table flow.
+        await this.userService.ensureUserExistsWithWalletAddress(
+          storedCredential.credentialId,
+          storedCredential.walletAddress,
+        );
+
         // Generate session token (30-minute validity)
-        const token = await this.authService.generateToken(storedCredential.credentialId, storedChallenge.userId);
+        const token = await this.authService.generateToken(
+          storedCredential.credentialId,
+          storedChallenge.userId,
+        );
 
         return {
           success: true,
@@ -201,9 +236,7 @@ export class PasskeyService {
         };
       }
     } catch (error) {
-      throw new BadRequestException(
-        `Verification failed: ${error.message}`,
-      );
+      throw new BadRequestException(`Verification failed: ${error.message}`);
     }
   }
 

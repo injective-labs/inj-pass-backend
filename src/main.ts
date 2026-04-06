@@ -7,16 +7,39 @@ import express, { Express } from 'express';
 
 const server: Express = express();
 
+function getAllowedOrigins() {
+  const configuredOrigins =
+    process.env.ORIGINS?.split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean) ?? [];
+
+  if (process.env.NODE_ENV !== 'production') {
+    return Array.from(
+      new Set([
+        ...configuredOrigins,
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:3002',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        'http://127.0.0.1:3002',
+      ]),
+    );
+  }
+
+  return configuredOrigins;
+}
+
 export const createNextServer = async (expressInstance: any) => {
   const app = await NestFactory.create(
     AppModule,
     new ExpressAdapter(expressInstance),
   );
 
+  const allowedOrigins = getAllowedOrigins();
+
   app.enableCors({
     origin: (origin, callback) => {
-      const allowedOrigins = process.env.ORIGINS?.split(',').map(o => o.trim()) || [];
-      
       // Allow requests without origin (e.g., mobile apps, Postman) or from allowed origins
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
@@ -25,7 +48,7 @@ export const createNextServer = async (expressInstance: any) => {
       }
     },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: 'Content-Type, Accept, Authorization, Cookie',
+    allowedHeaders: 'Content-Type, Accept, Authorization, Cookie, x-admin-key',
     credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204,

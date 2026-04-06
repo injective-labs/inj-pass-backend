@@ -5,9 +5,14 @@ import { PasskeyService } from './passkey.service';
 import { ChallengeStorageService } from './challenge-storage.service';
 import { PasskeyCredential } from './entities/credential.entity';
 import { AuthModule } from '../auth/auth.module';
+import { UserModule } from '../user/user.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([PasskeyCredential]), AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([PasskeyCredential]),
+    AuthModule,
+    UserModule,
+  ],
   controllers: [PasskeyController],
   providers: [PasskeyService, ChallengeStorageService],
   exports: [PasskeyService],

@@ -34,7 +34,11 @@ export class ChallengeStorageService {
   /**
    * Store a challenge with TTL (Redis)
    */
-  async store(challenge: string, action: 'register' | 'authenticate', userId?: string): Promise<void> {
+  async store(
+    challenge: string,
+    action: 'register' | 'authenticate',
+    userId?: string,
+  ): Promise<void> {
     const now = Date.now();
     const expiresAt = now + 60000; // 60 seconds TTL
 
@@ -47,15 +51,21 @@ export class ChallengeStorageService {
     };
 
     // Store in Redis with 60s TTL
-    await this.cacheManager.set(`challenge:${challenge}`, JSON.stringify(data), 60000);
+    await this.cacheManager.set(
+      `challenge:${challenge}`,
+      JSON.stringify(data),
+      60000,
+    );
   }
 
   /**
    * Get and validate a challenge (Redis)
    */
   async get(challenge: string): Promise<StoredChallenge | null> {
-    const stored = await this.cacheManager.get<string>(`challenge:${challenge}`);
-    
+    const stored = await this.cacheManager.get<string>(
+      `challenge:${challenge}`,
+    );
+
     if (!stored) {
       return null;
     }
@@ -109,8 +119,12 @@ export class ChallengeStorageService {
     // Find the next available number
     let suffix = 1;
     let candidateName = `${walletName}_${suffix}`;
-    
-    while (await this.credentialRepository.count({ where: { walletName: candidateName } }) > 0) {
+
+    while (
+      (await this.credentialRepository.count({
+        where: { walletName: candidateName },
+      })) > 0
+    ) {
       suffix++;
       candidateName = `${walletName}_${suffix}`;
     }
@@ -122,7 +136,13 @@ export class ChallengeStorageService {
    * Store credential (PostgreSQL)
    * CRITICAL: Once walletAddress and walletName are set, they can NEVER be changed or cleared
    */
-  async storeCredential(credentialId: string, publicKey: Uint8Array, counter: number, walletAddress?: string, walletName?: string): Promise<string> {
+  async storeCredential(
+    credentialId: string,
+    publicKey: Uint8Array,
+    counter: number,
+    walletAddress?: string,
+    walletName?: string,
+  ): Promise<string> {
     // First check if credential already exists
     const existingCredential = await this.credentialRepository.findOne({
       where: { credentialId },
@@ -131,8 +151,10 @@ export class ChallengeStorageService {
     // If credential already exists, NEVER modify walletAddress or walletName
     if (existingCredential) {
       // Only update counter and publicKey if needed
-      if (existingCredential.counter !== counter || 
-          !existingCredential.publicKey.equals(Buffer.from(publicKey))) {
+      if (
+        existingCredential.counter !== counter ||
+        !existingCredential.publicKey.equals(Buffer.from(publicKey))
+      ) {
         await this.credentialRepository.update(
           { credentialId },
           {
@@ -141,14 +163,16 @@ export class ChallengeStorageService {
           },
         );
       }
-      
+
       // Return existing wallet name - NEVER change it
       return existingCredential.walletName || '';
     }
 
     // Only create new credential if it doesn't exist
     // Generate unique wallet name if provided
-    const uniqueWalletName = walletName ? await this.generateUniqueWalletName(walletName) : null;
+    const uniqueWalletName = walletName
+      ? await this.generateUniqueWalletName(walletName)
+      : null;
 
     const credential = this.credentialRepository.create({
       credentialId,
@@ -160,7 +184,7 @@ export class ChallengeStorageService {
     });
 
     await this.credentialRepository.save(credential);
-    
+
     return uniqueWalletName || walletName || '';
   }
 
@@ -190,7 +214,10 @@ export class ChallengeStorageService {
    * Update credential counter (PostgreSQL)
    * CRITICAL: Only updates counter field, NEVER touches walletAddress or walletName
    */
-  async updateCredentialCounter(credentialId: string, counter: number): Promise<void> {
+  async updateCredentialCounter(
+    credentialId: string,
+    counter: number,
+  ): Promise<void> {
     // Use partial update to only modify counter field
     // This ensures walletAddress and walletName are never affected
     await this.credentialRepository.update(

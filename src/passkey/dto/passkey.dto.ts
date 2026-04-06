@@ -1,4 +1,11 @@
-import { IsEnum, IsOptional, IsString, IsNotEmpty } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsNotEmpty,
+  Length,
+  Matches,
+} from 'class-validator';
 
 export class ChallengeRequestDto {
   @IsEnum(['register', 'authenticate'])
@@ -32,6 +39,12 @@ export class VerifyRequestDto {
   @IsString()
   @IsOptional()
   walletName?: string; // Wallet name for registration
+
+  @IsString()
+  @IsOptional()
+  @Length(8, 8)
+  @Matches(/^[A-HJ-NP-Z2-9]{8}$/i)
+  inviteCode?: string; // Invite code for referral reward
 }
 
 export class VerifyResponseDto {

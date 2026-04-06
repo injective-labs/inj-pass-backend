@@ -6,6 +6,12 @@ import { redisStore } from 'cache-manager-redis-yet';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PasskeyModule } from './passkey/passkey.module';
+import { UserModule } from './user/user.module';
+import { PointsModule } from './points/points.module';
+import { ReferralModule } from './referral/referral.module';
+import { AIModule } from './ai/ai.module';
+import { AdminModule } from './admin/admin.module';
+import { DappsModule } from './dapps/dapps.module';
 
 @Module({
   imports: [
@@ -22,7 +28,7 @@ import { PasskeyModule } from './passkey/passkey.module';
       type: 'postgres',
       url: process.env.DATABASE_URL,
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
-      synchronize: process.env.NODE_ENV !== 'production', // Auto-create tables in dev
+      synchronize: false,
       ssl: {
         rejectUnauthorized: false, // Required for Supabase
       },
@@ -48,6 +54,12 @@ import { PasskeyModule } from './passkey/passkey.module';
     }),
 
     PasskeyModule,
+    UserModule,
+    PointsModule,
+    ReferralModule,
+    AIModule,
+    AdminModule,
+    DappsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

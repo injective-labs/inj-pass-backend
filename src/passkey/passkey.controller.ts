@@ -1,4 +1,12 @@
-import { Controller, Post, Body, Get, Logger, UseGuards, Headers } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Logger,
+  UseGuards,
+  Headers,
+} from '@nestjs/common';
 import { PasskeyService } from './passkey.service';
 import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -22,9 +30,13 @@ export class PasskeyController {
   async generateChallenge(
     @Body() dto: ChallengeRequestDto,
   ): Promise<ChallengeResponseDto> {
-    this.logger.log(`[POST /passkey/challenge] Request: ${JSON.stringify(dto)}`);
+    this.logger.log(
+      `[POST /passkey/challenge] Request: ${JSON.stringify(dto)}`,
+    );
     const result = await this.passkeyService.generateChallenge(dto);
-    this.logger.log(`[POST /passkey/challenge] Response: ${JSON.stringify({ challenge: result.challenge.substring(0, 20) + '...', rpId: result.rpId })}`);
+    this.logger.log(
+      `[POST /passkey/challenge] Response: ${JSON.stringify({ challenge: result.challenge.substring(0, 20) + '...', rpId: result.rpId })}`,
+    );
     return result;
   }
 
@@ -32,16 +44,23 @@ export class PasskeyController {
   async verifyPasskey(
     @Body() dto: VerifyRequestDto,
   ): Promise<VerifyResponseDto> {
-    this.logger.log(`[POST /passkey/verify] Request: ${JSON.stringify({ challenge: dto.challenge.substring(0, 20) + '...', hasAttestation: !!dto.attestation })}`);
+    this.logger.log(
+      `[POST /passkey/verify] Request: ${JSON.stringify({ challenge: dto.challenge.substring(0, 20) + '...', hasAttestation: !!dto.attestation })}`,
+    );
     const result = await this.passkeyService.verifyPasskey(dto);
-    this.logger.log(`[POST /passkey/verify] Response: ${JSON.stringify(result)}`);
+    this.logger.log(
+      `[POST /passkey/verify] Response: ${JSON.stringify(result)}`,
+    );
     return result;
   }
 
   @Post('verify-token')
-  async verifyToken(
-    @Headers('authorization') authHeader: string,
-  ): Promise<{ valid: boolean; credentialId?: string; userId?: string; expiresAt?: number }> {
+  async verifyToken(@Headers('authorization') authHeader: string): Promise<{
+    valid: boolean;
+    credentialId?: string;
+    userId?: string;
+    expiresAt?: number;
+  }> {
     this.logger.log('[POST /passkey/verify-token] Request');
 
     if (!authHeader) {
@@ -61,7 +80,9 @@ export class PasskeyController {
       return { valid: false };
     }
 
-    this.logger.log(`[POST /passkey/verify-token] Token verified for credential: ${payload.credentialId.substring(0, 20)}...`);
+    this.logger.log(
+      `[POST /passkey/verify-token] Token verified for credential: ${payload.credentialId.substring(0, 20)}...`,
+    );
     return {
       valid: true,
       credentialId: payload.credentialId,
@@ -93,7 +114,9 @@ export class PasskeyController {
       return { success: false, error: 'Token refresh failed' };
     }
 
-    this.logger.log('[POST /passkey/refresh-token] Token refreshed successfully');
+    this.logger.log(
+      '[POST /passkey/refresh-token] Token refreshed successfully',
+    );
     return { success: true, token: newToken };
   }
 
