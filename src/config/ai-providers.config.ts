@@ -58,8 +58,12 @@ export const MODEL_MAPPING: Record<string, AIModelConfig> = {
   },
 
   // OpenAI models
+  'gpt-5.1': { provider: 'openai', modelId: 'gpt-5.1' },
   'gpt-4o': { provider: 'openai', modelId: 'gpt-4o' },
   'gpt-4o-mini': { provider: 'openai', modelId: 'gpt-4o-mini' },
+
+  // DeepSeek model
+  'deepseek-v3.2': { provider: 'openrouter', modelId: 'deepseek/deepseek-chat' },
 
   // OpenRouter models (use prefix format)
   'claude-3.5-sonnet-or': {

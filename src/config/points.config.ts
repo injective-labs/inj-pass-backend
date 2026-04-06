@@ -28,6 +28,8 @@ export const POINTS_CONFIG = {
       'claude-sonnet-4-6': { input: 0.003, output: 0.015 },
       'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
       // Add more models here as needed
+      'gpt-5.1': { input: 0.01, output: 0.03 },
+      'deepseek-v3.2': { input: 0.00027, output: 0.0011 },
       'gpt-4o': { input: 0.0025, output: 0.01 },
       'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
     },
@@ -35,9 +37,7 @@ export const POINTS_CONFIG = {
     DEFAULT_MODEL: 'gpt-4o-mini',
     // Map frontend display/alias model names to billable models.
     MODEL_ALIASES: {
-      'gpt-5.2': 'gpt-4o',
       'gemini-3.1-pro-preview': 'claude-sonnet-4-6',
-      'deepseek-v3.2': 'gpt-4o',
     },
     // NINJA tokens per 1 USD (adjustable for economic balancing)
     // e.g., 100 means 1 USD = 100 NINJA
