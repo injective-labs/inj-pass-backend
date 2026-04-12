@@ -2,9 +2,13 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import Redis from 'ioredis';
 import type {
+  StoredDAppCapability,
   StoredDApp,
   StoredDAppCategory,
+  StoredDAppPrimaryCategory,
   StoredDAppTab,
+  STORED_DAPP_CAPABILITIES,
+  STORED_DAPP_PRIMARY_CATEGORIES,
 } from './dapps.constants';
 
 type UploadedAsset = {
@@ -18,10 +22,30 @@ type UpsertDAppInput = {
   name: string;
   description: string;
   categories: StoredDAppCategory[];
+  primaryCategory?: StoredDAppPrimaryCategory;
+  capabilities?: StoredDAppCapability[];
+  aiDriven?: boolean;
   order?: number;
   url: string;
   featured?: boolean;
   icon: string;
+  mentionPrompt?: string;
+  mentionLabel?: string;
+  mentionThemeKey?: string;
+};
+
+type BackfillCapabilitiesInput = {
+  dryRun?: boolean;
+  overwrite?: boolean;
+};
+
+type BackfillPreviewRow = {
+  id: string;
+  name: string;
+  categories: StoredDAppCategory[];
+  previousCapabilities: StoredDAppCapability[];
+  nextCapabilities: StoredDAppCapability[];
+  changed: boolean;
 };
 
 @Injectable()
@@ -76,6 +100,14 @@ export class DappsService {
         dapp.name.toLowerCase().includes(keyword) ||
         dapp.description.toLowerCase().includes(keyword) ||
         dapp.url.toLowerCase().includes(keyword) ||
+        (dapp.mentionPrompt ?? '').toLowerCase().includes(keyword) ||
+        (dapp.mentionLabel ?? '').toLowerCase().includes(keyword) ||
+        (dapp.mentionThemeKey ?? '').toLowerCase().includes(keyword) ||
+        (dapp.primaryCategory ?? '').toLowerCase().includes(keyword) ||
+        (dapp.aiDriven ? 'ai-driven' : '').includes(keyword) ||
+        (dapp.capabilities ?? []).some((capability) =>
+          capability.toLowerCase().includes(keyword),
+        ) ||
         dapp.categories.some((category) =>
           category.toLowerCase().includes(keyword),
         ),
@@ -118,6 +150,7 @@ export class DappsService {
     }
 
     await this.redisClient.set(this.tabsCacheKey, JSON.stringify(normalized));
+
     return normalized;
   }
 
@@ -145,6 +178,35 @@ export class DappsService {
       );
     }
 
+    const normalizedPrimaryCategory = input.primaryCategory?.trim().toLowerCase();
+    if (
+      normalizedPrimaryCategory &&
+      !STORED_DAPP_PRIMARY_CATEGORIES.includes(
+        normalizedPrimaryCategory as StoredDAppPrimaryCategory,
+      )
+    ) {
+      throw new BadRequestException(
+        `Unsupported primaryCategory: ${normalizedPrimaryCategory}`,
+      );
+    }
+
+    const normalizedCapabilities = Array.from(
+      new Set(
+        (input.capabilities ?? [])
+          .map((capability) => capability.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ) as StoredDAppCapability[];
+
+    const invalidCapabilities = normalizedCapabilities.filter(
+      (capability) => !STORED_DAPP_CAPABILITIES.includes(capability),
+    );
+    if (invalidCapabilities.length > 0) {
+      throw new BadRequestException(
+        `Unsupported capabilities: ${invalidCapabilities.join(', ')}`,
+      );
+    }
+
     const dapps = await this.getStoredDapps();
     const now = new Date().toISOString();
     const id = input.id?.trim() || `${Date.now()}`;
@@ -154,6 +216,11 @@ export class DappsService {
       name: input.name.trim(),
       description: input.description.trim(),
       categories,
+      primaryCategory: normalizedPrimaryCategory as
+        | StoredDAppPrimaryCategory
+        | undefined,
+      capabilities: normalizedCapabilities,
+      aiDriven: Boolean(input.aiDriven),
       order:
         typeof input.order === 'number' && Number.isFinite(input.order)
           ? input.order
@@ -161,6 +228,9 @@ export class DappsService {
       url: input.url.trim(),
       icon: this.toPublicUrl(input.icon.trim()),
       featured: Boolean(input.featured),
+      mentionPrompt: this.optionalText(input.mentionPrompt),
+      mentionLabel: this.optionalText(input.mentionLabel),
+      mentionThemeKey: this.optionalLowerText(input.mentionThemeKey),
       createdAt: now,
       updatedAt: now,
     };
@@ -200,6 +270,58 @@ export class DappsService {
     return { key, publicUrl };
   }
 
+  async backfillCapabilities(input: BackfillCapabilitiesInput) {
+    const dryRun = input.dryRun ?? true;
+    const overwrite = input.overwrite ?? false;
+    const dapps = await this.getStoredDapps();
+
+    const rows: BackfillPreviewRow[] = dapps.map((dapp) => {
+      const previous = Array.isArray(dapp.capabilities)
+        ? dapp.capabilities.filter((capability): capability is StoredDAppCapability =>
+            STORED_DAPP_CAPABILITIES.includes(capability),
+          )
+        : [];
+
+      const inferred = this.inferCapabilities(dapp);
+      const next = overwrite || previous.length === 0 ? inferred : previous;
+      const changed = this.stringifyCapabilities(previous) !== this.stringifyCapabilities(next);
+
+      return {
+        id: dapp.id,
+        name: dapp.name,
+        categories: dapp.categories,
+        previousCapabilities: previous,
+        nextCapabilities: next,
+        changed,
+      };
+    });
+
+    if (!dryRun) {
+      const now = new Date().toISOString();
+      const nextDapps = dapps.map((dapp) => {
+        const row = rows.find((item) => item.id === dapp.id);
+        if (!row || !row.changed) return dapp;
+        return {
+          ...dapp,
+          capabilities: row.nextCapabilities,
+          updatedAt: now,
+        };
+      });
+      await this.saveStoredDapps(nextDapps);
+    }
+
+    const changed = rows.filter((row) => row.changed).length;
+    return {
+      dryRun,
+      overwrite,
+      total: rows.length,
+      changed,
+      unchanged: rows.length - changed,
+      appliedAt: new Date().toISOString(),
+      rows,
+    };
+  }
+
   private async getStoredDapps(): Promise<StoredDApp[]> {
     const cached = await this.redisClient.get(this.cacheKey);
     if (cached) {
@@ -209,18 +331,8 @@ export class DappsService {
           throw new Error('Invalid dapp payload');
         }
 
-        for (const dapp of parsed) {
-          if (!Array.isArray(dapp.categories)) {
-            throw new Error('Invalid dapp categories payload');
-          }
-        }
-
         return parsed
-          .map((dapp) => ({
-            ...dapp,
-            order: Number.isFinite(dapp.order) ? dapp.order : 0,
-            categories: dapp.categories.filter(Boolean),
-          }))
+          .map((dapp) => this.normalizeStoredDapp(dapp))
           .sort(
             (left, right) =>
               right.order - left.order ||
@@ -238,9 +350,9 @@ export class DappsService {
     const cached = await this.redisClient.get(this.tabsCacheKey);
     if (cached) {
       try {
-        return (JSON.parse(cached) as StoredDAppTab[]).sort(
-          (left, right) => left.order - right.order,
-        );
+        return (JSON.parse(cached) as StoredDAppTab[])
+          .map((tab) => this.normalizeStoredTab(tab))
+          .sort((left, right) => left.order - right.order);
       } catch {
         await this.redisClient.del(this.tabsCacheKey);
       }
@@ -258,6 +370,51 @@ export class DappsService {
           right.updatedAt.localeCompare(left.updatedAt),
       );
     await this.redisClient.set(this.cacheKey, JSON.stringify(sorted));
+  }
+
+  private normalizeStoredDapp(dapp: StoredDApp): StoredDApp {
+    return {
+      id: String(dapp.id ?? '').trim(),
+      name: String(dapp.name ?? '').trim(),
+      description: String(dapp.description ?? '').trim(),
+      icon: String(dapp.icon ?? '').trim(),
+      categories: Array.isArray(dapp.categories)
+        ? dapp.categories.filter((category): category is string => Boolean(category && category.trim()))
+        : [],
+      primaryCategory: this.optionalLowerText(dapp.primaryCategory) as
+        | StoredDAppPrimaryCategory
+        | undefined,
+      capabilities: Array.isArray(dapp.capabilities)
+        ? dapp.capabilities
+            .map((capability) => this.optionalLowerText(capability))
+            .filter((capability): capability is StoredDAppCapability =>
+              Boolean(
+                capability &&
+                  STORED_DAPP_CAPABILITIES.includes(
+                    capability as StoredDAppCapability,
+                  ),
+              ),
+            )
+        : [],
+      aiDriven: Boolean(dapp.aiDriven),
+      order: Number.isFinite(dapp.order) ? dapp.order : 0,
+      url: String(dapp.url ?? '').trim(),
+      featured: Boolean(dapp.featured),
+      mentionPrompt: this.optionalText(dapp.mentionPrompt),
+      mentionLabel: this.optionalText(dapp.mentionLabel),
+      mentionThemeKey: this.optionalLowerText(dapp.mentionThemeKey),
+      createdAt: dapp.createdAt,
+      updatedAt: dapp.updatedAt,
+    };
+  }
+
+  private normalizeStoredTab(tab: StoredDAppTab): StoredDAppTab {
+    return {
+      id: String(tab.id ?? '').trim(),
+      label: String(tab.label ?? '').trim(),
+      order: Number.isFinite(tab.order) ? tab.order : 0,
+      enabled: Boolean(tab.enabled),
+    };
   }
 
   private getExtension(filename: string, mimeType: string) {
@@ -282,11 +439,98 @@ export class DappsService {
     return normalized || 'dapp';
   }
 
+  private optionalText(value?: string) {
+    const normalized = value?.trim();
+    return normalized ? normalized : undefined;
+  }
+
+  private optionalLowerText(value?: string) {
+    const normalized = value?.trim().toLowerCase();
+    return normalized ? normalized : undefined;
+  }
+
   private toPublicUrl(icon: string) {
     if (!icon) return icon;
     if (icon.startsWith('http') || icon.startsWith('/')) return icon;
     if (!icon.startsWith('dapp/')) return icon;
     if (!this.publicBaseUrl) return icon;
     return `${this.publicBaseUrl.replace(/\/$/, '')}/${icon.replace(/^\//, '')}`;
+  }
+
+  private inferCapabilities(dapp: StoredDApp): StoredDAppCapability[] {
+    const bag = new Set<StoredDAppCapability>();
+
+    if (dapp.aiDriven) {
+      bag.add('wallet_read');
+    }
+
+    const categories = (dapp.categories ?? []).map((category) =>
+      category.toLowerCase(),
+    );
+    const text = `${dapp.name} ${dapp.description} ${dapp.url}`.toLowerCase();
+
+    for (const category of categories) {
+      if (/(game|gaming|play)/.test(category)) {
+        bag.add('game_action');
+      }
+      if (/(swap|dex|exchange|trade)/.test(category)) {
+        bag.add('swap');
+      }
+      if (/(bridge|cross)/.test(category)) {
+        bag.add('bridge');
+      }
+      if (/(nft|collectible)/.test(category)) {
+        bag.add('nft_mint');
+      }
+      if (/(defi|lend|loan)/.test(category)) {
+        bag.add('defi_lend');
+      }
+      if (/(borrow|credit)/.test(category)) {
+        bag.add('defi_borrow');
+      }
+      if (/(stake|staking|yield|farm)/.test(category)) {
+        bag.add('defi_stake');
+      }
+      if (/(wallet|portfolio|history)/.test(category)) {
+        bag.add('wallet_read');
+      }
+      if (/(pay|send|transfer)/.test(category)) {
+        bag.add('transfer');
+      }
+      if (/(sign|auth)/.test(category)) {
+        bag.add('sign_message');
+      }
+    }
+
+    if (/(swap|dex|exchange|trade)/.test(text)) {
+      bag.add('swap');
+    }
+    if (/(send|transfer|payment)/.test(text)) {
+      bag.add('transfer');
+    }
+    if (/(game|mahjong|play)/.test(text)) {
+      bag.add('game_action');
+    }
+    if (/(stake|staking|yield|farm)/.test(text)) {
+      bag.add('defi_stake');
+    }
+    if (/(lend|lending|loan)/.test(text)) {
+      bag.add('defi_lend');
+    }
+    if (/(borrow|borrowing|credit)/.test(text)) {
+      bag.add('defi_borrow');
+    }
+    if (/(bridge|cross-chain)/.test(text)) {
+      bag.add('bridge');
+    }
+    if (/(nft|mint)/.test(text)) {
+      bag.add('nft_mint');
+    }
+
+    return STORED_DAPP_CAPABILITIES.filter((capability) => bag.has(capability));
+  }
+
+  private stringifyCapabilities(capabilities: StoredDAppCapability[]): string {
+    return capabilities.slice().sort().join(',');
   }
 }

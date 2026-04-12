@@ -29,6 +29,23 @@ function getAllowedOrigins() {
   return configuredOrigins;
 }
 
+function isAllowedLocalOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    return (
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '0.0.0.0'
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const createNextServer = async (expressInstance: any) => {
   const app = await NestFactory.create(
     AppModule,
@@ -40,7 +57,11 @@ export const createNextServer = async (expressInstance: any) => {
   app.enableCors({
     origin: (origin, callback) => {
       // Allow requests without origin (e.g., mobile apps, Postman) or from allowed origins
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        (process.env.NODE_ENV !== 'production' && isAllowedLocalOrigin(origin))
+      ) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
