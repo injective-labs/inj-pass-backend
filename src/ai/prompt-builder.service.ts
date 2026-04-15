@@ -54,9 +54,8 @@ export class PromptBuilderService {
 
     const profileText = dapps
       .map((dapp) => {
-        const capabilityText = (dapp.capabilities ?? []).join(', ') || 'base';
-        const toolText = (dapp.toolIds ?? []).join(', ') || 'inferred';
-        return `- ${dapp.name} [aiDriven=${dapp.aiDriven ? 'true' : 'false'}; capabilities=${capabilityText}; tools=${toolText}]`;
+        const toolText = (dapp.toolIds ?? []).join(', ') || '-';
+        return `- ${dapp.name} [aiDriven=${dapp.aiDriven ? 'true' : 'false'}; tools=${toolText}]`;
       })
       .join('\n');
 

@@ -5,25 +5,12 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { AgentContext, AGENT_TOOLS } from './agents.config';
-import type { StoredDAppCapability } from '../../dapps/dapps.constants';
 import * as walletTools from './tools/wallet.tools';
 import * as swapTools from './tools/swap.tools';
 import * as gameTools from './tools/game.tools';
 
-const TOOL_TO_CAPABILITY: Record<string, StoredDAppCapability | 'base'> = {
-  get_wallet_info: 'base',
-  get_balance: 'read',
-  get_tx_history: 'read',
-  get_swap_quote: 'quote',
-  execute_swap: 'transact',
-  send_token: 'transact',
-  play_hash_mahjong: 'game',
-  play_hash_mahjong_multi: 'game',
-};
-
 export type AgentToolPolicy = {
   allowedToolNames?: string[];
-  allowedCapabilities?: StoredDAppCapability[];
   aiDriven?: boolean;
   dappName?: string;
 };
@@ -152,15 +139,10 @@ export class AgentsService {
     }
 
     const allowedToolNames = policy.allowedToolNames;
-    if (Array.isArray(allowedToolNames) && allowedToolNames.length > 0) {
-      return allowedToolNames.includes(name);
+    if (!Array.isArray(allowedToolNames) || allowedToolNames.length === 0) {
+      return false;
     }
 
-    const mappedCapability = TOOL_TO_CAPABILITY[name];
-    if (!mappedCapability) return false;
-    if (mappedCapability === 'base') return true;
-
-    const allowedCapabilities = policy.allowedCapabilities ?? [];
-    return allowedCapabilities.includes(mappedCapability);
+    return allowedToolNames.includes(name);
   }
 }

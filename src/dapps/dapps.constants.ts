@@ -1,17 +1,6 @@
 export type StoredDAppCategory = string;
 export type StoredDAppPrimaryCategory = StoredDAppCategory;
 
-export const STORED_DAPP_CAPABILITIES = [
-  'read',
-  'quote',
-  'transact',
-  'sign',
-  'position',
-  'game',
-] as const;
-
-export type StoredDAppCapability = (typeof STORED_DAPP_CAPABILITIES)[number];
-
 export const STORED_DAPP_TOOL_IDS = [
   'get_wallet_info',
   'get_balance',
@@ -59,7 +48,6 @@ export interface StoredToolDefinition {
   category: StoredToolCategory;
   riskLevel: StoredToolRiskLevel;
   status: StoredToolStatus;
-  capabilities: StoredDAppCapability[];
 }
 
 export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
@@ -70,7 +58,6 @@ export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
     category: 'read',
     riskLevel: 'safe',
     status: 'active',
-    capabilities: ['read'],
   },
   {
     id: 'get_balance',
@@ -79,7 +66,6 @@ export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
     category: 'read',
     riskLevel: 'safe',
     status: 'active',
-    capabilities: ['read'],
   },
   {
     id: 'get_tx_history',
@@ -88,7 +74,6 @@ export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
     category: 'read',
     riskLevel: 'safe',
     status: 'active',
-    capabilities: ['read'],
   },
   {
     id: 'get_swap_quote',
@@ -97,7 +82,6 @@ export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
     category: 'quote',
     riskLevel: 'safe',
     status: 'active',
-    capabilities: ['quote'],
   },
   {
     id: 'execute_swap',
@@ -106,7 +90,6 @@ export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
     category: 'transact',
     riskLevel: 'destructive',
     status: 'active',
-    capabilities: ['transact'],
   },
   {
     id: 'send_token',
@@ -115,7 +98,6 @@ export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
     category: 'transact',
     riskLevel: 'destructive',
     status: 'active',
-    capabilities: ['transact'],
   },
   {
     id: 'play_hash_mahjong',
@@ -124,7 +106,6 @@ export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
     category: 'game',
     riskLevel: 'destructive',
     status: 'active',
-    capabilities: ['game'],
   },
   {
     id: 'play_hash_mahjong_multi',
@@ -133,7 +114,6 @@ export const STORED_TOOL_DEFINITIONS: StoredToolDefinition[] = [
     category: 'game',
     riskLevel: 'destructive',
     status: 'active',
-    capabilities: ['game'],
   },
 ];
 
@@ -151,7 +131,6 @@ export interface StoredDApp {
   icon: string;
   categories: StoredDAppCategory[];
   primaryCategory?: StoredDAppPrimaryCategory;
-  capabilities?: StoredDAppCapability[];
   toolIds?: StoredDAppToolId[];
   aiDriven?: boolean;
   order: number;

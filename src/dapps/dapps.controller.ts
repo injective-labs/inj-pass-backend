@@ -25,10 +25,8 @@ import {
 import { DappsService } from './dapps.service';
 import { AdminGuard } from '../admin/admin.guard';
 import {
-  STORED_DAPP_CAPABILITIES,
   STORED_DAPP_TOOL_IDS,
   STORED_TOOL_DEFINITIONS,
-  type StoredDAppCapability,
   type StoredDAppCategory,
   type StoredDAppPrimaryCategory,
   type StoredDAppToolId,
@@ -54,12 +52,6 @@ class UpsertDAppDto {
   @IsOptional()
   @IsString()
   primaryCategory?: StoredDAppPrimaryCategory;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  @IsIn(STORED_DAPP_CAPABILITIES, { each: true })
-  capabilities?: StoredDAppCapability[];
 
   @IsOptional()
   @IsBoolean()
@@ -113,16 +105,6 @@ class UpdateDAppTabsDto {
   tabs: DAppTabDto[];
 }
 
-class BackfillCapabilitiesDto {
-  @IsOptional()
-  @IsBoolean()
-  dryRun?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  overwrite?: boolean;
-}
-
 class DAppTabDto {
   @IsString()
   id: StoredDAppCategory;
@@ -170,15 +152,6 @@ export class DappsController {
   @Post('admin')
   async createDapp(@Body() body: UpsertDAppDto) {
     return this.dappsService.upsertDapp(body);
-  }
-
-  @UseGuards(AdminGuard)
-  @Post('admin/backfill-capabilities')
-  async backfillCapabilities(@Body() body: BackfillCapabilitiesDto) {
-    return this.dappsService.backfillCapabilities({
-      dryRun: body.dryRun ?? true,
-      overwrite: body.overwrite ?? false,
-    });
   }
 
   @UseGuards(AdminGuard)

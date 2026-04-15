@@ -7,7 +7,6 @@ import { DappsService } from '../dapps/dapps.service';
 import {
   STORED_TOOL_DEFINITIONS,
   type StoredDApp,
-  type StoredDAppCapability,
   type StoredDAppToolId,
 } from '../dapps/dapps.constants';
 import {
@@ -93,6 +92,23 @@ export class AgentOrchestratorService {
       title: trimmedMessage.slice(0, 40),
     });
 
+    if (session.pendingConfirmation) {
+      this.appendCancelledPendingToolResult(
+        session,
+        session.pendingConfirmation,
+        'Pending confirmation cancelled because user sent a new message.',
+      );
+      await this.agentToolLogService.complete({
+        conversationId: session.conversationId,
+        toolUseId: session.pendingConfirmation.toolUseId,
+        status: 'cancelled',
+        confirmed: false,
+        errorCode: 'PENDING_CONFIRMATION_CANCELLED',
+        errorMessage:
+          'Pending confirmation cancelled because user sent a new message.',
+      });
+    }
+
     session.title = session.apiHistory.length === 0 ? trimmedMessage.slice(0, 40) || session.title : session.title;
     session.apiHistory.push({ role: 'user', content: trimmedMessage });
     session.pendingConfirmation = null;
@@ -120,6 +136,11 @@ export class AgentOrchestratorService {
     }
 
     if (!input.approve) {
+      this.appendCancelledPendingToolResult(
+        session,
+        pending,
+        'User cancelled the pending tool action.',
+      );
       session.pendingConfirmation = null;
       await this.agentToolLogService.complete({
         conversationId: session.conversationId,
@@ -281,6 +302,12 @@ export class AgentOrchestratorService {
     uiMessages: AgentUiMessage[],
   ) {
     try {
+    const repairedHistory = this.repairMissingToolResults(session.apiHistory);
+    if (repairedHistory.changed) {
+      session.apiHistory = repairedHistory.history;
+      await this.agentSessionService.saveSession(session);
+    }
+
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
 
@@ -348,7 +375,8 @@ export class AgentOrchestratorService {
         };
       }
 
-      for (const toolUse of toolUses) {
+      for (let index = 0; index < toolUses.length; index += 1) {
+        const toolUse = toolUses[index];
         const toolName = toolUse.name as StoredDAppToolId;
         const toolInput = (toolUse.input ?? {}) as Record<string, unknown>;
 
@@ -373,6 +401,32 @@ export class AgentOrchestratorService {
             toolInput,
             executionMode,
           };
+
+          // Some providers require every tool_call_id in one assistant turn
+          // to be answered before the next model call. If we pause for one
+          // destructive confirmation, mark the remaining tool calls as deferred.
+          const remainingToolUses = toolUses.slice(index + 1);
+          if (remainingToolUses.length > 0) {
+            const deferredContent = JSON.stringify({
+              error:
+                'Deferred because another destructive tool is awaiting confirmation. Re-request after confirmation.',
+              code: 'DEFERRED_DUE_TO_CONFIRMATION',
+            });
+            for (const remaining of remainingToolUses) {
+              if (!remaining.id) continue;
+              session.apiHistory.push({
+                role: 'user',
+                content: [
+                  {
+                    type: 'tool_result',
+                    tool_use_id: remaining.id,
+                    content: deferredContent,
+                  },
+                ],
+              });
+            }
+          }
+
           session.pendingConfirmation = pending;
           await this.agentSessionService.saveSession(session);
           await this.persistSessionSnapshot(session, {
@@ -668,17 +722,14 @@ export class AgentOrchestratorService {
 
   private buildToolPolicy(mentionedDapps: StoredDApp[]) {
     const explicitToolIds = new Set<StoredDAppToolId>(BASE_TOOL_IDS);
-    const allowedCapabilities = new Set<StoredDAppCapability>();
 
     for (const dapp of mentionedDapps.filter((item) => item.aiDriven)) {
       (dapp.toolIds ?? []).forEach((toolId) => explicitToolIds.add(toolId));
-      (dapp.capabilities ?? []).forEach((capability) => allowedCapabilities.add(capability));
     }
 
     return {
       aiDriven: true,
       allowedToolNames: Array.from(explicitToolIds),
-      allowedCapabilities: Array.from(allowedCapabilities),
       dappName: mentionedDapps.map((item) => item.name).join(', '),
     };
   }
@@ -720,5 +771,93 @@ export class AgentOrchestratorService {
     } catch {
       return `🔧 **${name}**: ${raw}`;
     }
+  }
+
+  private appendCancelledPendingToolResult(
+    session: AgentSessionRecord,
+    pending: PendingToolConfirmation,
+    reason: string,
+  ) {
+    if (!pending.toolUseId) return;
+    session.apiHistory.push({
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: pending.toolUseId,
+          content: JSON.stringify({
+            error: reason,
+            code: 'CANCELLED',
+          }),
+        },
+      ],
+    });
+  }
+
+  private repairMissingToolResults(history: AgentApiMessage[]): {
+    changed: boolean;
+    history: AgentApiMessage[];
+  } {
+    const repaired: AgentApiMessage[] = [];
+    let changed = false;
+
+    const isToolResultOnlyUserMessage = (message: AgentApiMessage) =>
+      message.role === 'user' &&
+      Array.isArray(message.content) &&
+      message.content.length > 0 &&
+      message.content.every((block) => block.type === 'tool_result');
+
+    for (let i = 0; i < history.length; i += 1) {
+      const current = history[i];
+      repaired.push(current);
+
+      if (current.role !== 'assistant' || !Array.isArray(current.content)) {
+        continue;
+      }
+
+      const requiredToolUseIds = current.content
+        .filter((block) => block.type === 'tool_use' && block.id)
+        .map((block) => block.id as string);
+
+      if (requiredToolUseIds.length === 0) {
+        continue;
+      }
+
+      const existingToolResultIds = new Set<string>();
+      for (let j = i + 1; j < history.length; j += 1) {
+        const next = history[j];
+        if (!isToolResultOnlyUserMessage(next)) {
+          break;
+        }
+        for (const block of next.content as AgentApiBlock[]) {
+          if (block.type === 'tool_result' && block.tool_use_id) {
+            existingToolResultIds.add(block.tool_use_id);
+          }
+        }
+      }
+
+      const missing = requiredToolUseIds.filter(
+        (toolUseId) => !existingToolResultIds.has(toolUseId),
+      );
+      if (missing.length === 0) {
+        continue;
+      }
+
+      changed = true;
+      repaired.push({
+        role: 'user',
+        content: missing.map((toolUseId) => ({
+          type: 'tool_result',
+          tool_use_id: toolUseId,
+          content: JSON.stringify({
+            error:
+              'Recovered missing tool result from previous incomplete turn.',
+            code: 'RECOVERED_MISSING_TOOL_RESULT',
+          }),
+        })),
+      });
+    }
+
+    return { changed, history: repaired };
   }
 }

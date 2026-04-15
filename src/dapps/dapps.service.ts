@@ -2,13 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import Redis from 'ioredis';
 import {
-  StoredDAppCapability,
   StoredDApp,
   StoredDAppCategory,
   StoredDAppPrimaryCategory,
   StoredDAppToolId,
   StoredDAppTab,
-  STORED_DAPP_CAPABILITIES,
   STORED_DAPP_TOOL_IDS,
 } from './dapps.constants';
 
@@ -24,7 +22,6 @@ type UpsertDAppInput = {
   description: string;
   categories: StoredDAppCategory[];
   primaryCategory?: StoredDAppPrimaryCategory;
-  capabilities?: StoredDAppCapability[];
   toolIds?: StoredDAppToolId[];
   aiDriven?: boolean;
   order?: number;
@@ -36,20 +33,6 @@ type UpsertDAppInput = {
   mentionPrompt?: string;
   mentionLabel?: string;
   mentionThemeKey?: string;
-};
-
-type BackfillCapabilitiesInput = {
-  dryRun?: boolean;
-  overwrite?: boolean;
-};
-
-type BackfillPreviewRow = {
-  id: string;
-  name: string;
-  categories: StoredDAppCategory[];
-  previousCapabilities: StoredDAppCapability[];
-  nextCapabilities: StoredDAppCapability[];
-  changed: boolean;
 };
 
 @Injectable()
@@ -112,8 +95,8 @@ export class DappsService {
         (dapp.mentionThemeKey ?? '').toLowerCase().includes(keyword) ||
         (dapp.primaryCategory ?? '').toLowerCase().includes(keyword) ||
         (dapp.aiDriven ? 'ai-driven' : '').includes(keyword) ||
-        (dapp.capabilities ?? []).some((capability) =>
-          capability.toLowerCase().includes(keyword),
+        (dapp.toolIds ?? []).some((toolId) =>
+          toolId.toLowerCase().includes(keyword),
         ) ||
         dapp.categories.some((category) =>
           category.toLowerCase().includes(keyword),
@@ -198,23 +181,6 @@ export class DappsService {
       );
     }
 
-    const normalizedCapabilities = Array.from(
-      new Set(
-        (input.capabilities ?? [])
-          .map((capability) => capability.trim().toLowerCase())
-          .filter(Boolean),
-      ),
-    ) as StoredDAppCapability[];
-
-    const invalidCapabilities = normalizedCapabilities.filter(
-      (capability) => !STORED_DAPP_CAPABILITIES.includes(capability),
-    );
-    if (invalidCapabilities.length > 0) {
-      throw new BadRequestException(
-        `Unsupported capabilities: ${invalidCapabilities.join(', ')}`,
-      );
-    }
-
     const normalizedToolIds = Array.from(
       new Set(
         (input.toolIds ?? [])
@@ -238,13 +204,7 @@ export class DappsService {
       );
     }
 
-    const nextToolIds =
-      normalizedToolIds.length > 0
-        ? normalizedToolIds
-        : this.inferToolIds({
-            capabilities: normalizedCapabilities,
-            aiDriven,
-          });
+    const nextToolIds = aiDriven ? normalizedToolIds : [];
 
     const dapps = await this.getStoredDapps();
     const now = new Date().toISOString();
@@ -258,7 +218,6 @@ export class DappsService {
       primaryCategory: normalizedPrimaryCategory as
         | StoredDAppPrimaryCategory
         | undefined,
-      capabilities: normalizedCapabilities,
       toolIds: nextToolIds,
       aiDriven,
       order:
@@ -312,58 +271,6 @@ export class DappsService {
     return { key, publicUrl };
   }
 
-  async backfillCapabilities(input: BackfillCapabilitiesInput) {
-    const dryRun = input.dryRun ?? true;
-    const overwrite = input.overwrite ?? false;
-    const dapps = await this.getStoredDapps();
-
-    const rows: BackfillPreviewRow[] = dapps.map((dapp) => {
-      const previous = Array.isArray(dapp.capabilities)
-        ? dapp.capabilities.filter((capability): capability is StoredDAppCapability =>
-            STORED_DAPP_CAPABILITIES.includes(capability),
-          )
-        : [];
-
-      const inferred = this.inferCapabilities(dapp);
-      const next = overwrite || previous.length === 0 ? inferred : previous;
-      const changed = this.stringifyCapabilities(previous) !== this.stringifyCapabilities(next);
-
-      return {
-        id: dapp.id,
-        name: dapp.name,
-        categories: dapp.categories,
-        previousCapabilities: previous,
-        nextCapabilities: next,
-        changed,
-      };
-    });
-
-    if (!dryRun) {
-      const now = new Date().toISOString();
-      const nextDapps = dapps.map((dapp) => {
-        const row = rows.find((item) => item.id === dapp.id);
-        if (!row || !row.changed) return dapp;
-        return {
-          ...dapp,
-          capabilities: row.nextCapabilities,
-          updatedAt: now,
-        };
-      });
-      await this.saveStoredDapps(nextDapps);
-    }
-
-    const changed = rows.filter((row) => row.changed).length;
-    return {
-      dryRun,
-      overwrite,
-      total: rows.length,
-      changed,
-      unchanged: rows.length - changed,
-      appliedAt: new Date().toISOString(),
-      rows,
-    };
-  }
-
   private async getStoredDapps(): Promise<StoredDApp[]> {
     const cached = await this.redisClient.get(this.cacheKey);
     if (cached) {
@@ -415,6 +322,28 @@ export class DappsService {
   }
 
   private normalizeStoredDapp(dapp: StoredDApp): StoredDApp {
+    const aiDriven =
+      Boolean(dapp.aiDriven) ||
+      (Array.isArray(dapp.categories) &&
+        dapp.categories.includes(this.aiDrivenCategoryId));
+    const normalizedToolIds = Array.isArray(dapp.toolIds)
+      ? dapp.toolIds
+          .map((toolId) => this.optionalText(toolId))
+          .filter((toolId): toolId is StoredDAppToolId =>
+            Boolean(
+              toolId &&
+                STORED_DAPP_TOOL_IDS.includes(toolId as StoredDAppToolId),
+            ),
+          )
+      : [];
+    const fallbackToolIds =
+      normalizedToolIds.length > 0
+        ? normalizedToolIds
+        : this.inferToolIdsFromLegacyCapabilities(
+            this.extractLegacyCapabilities(dapp),
+            aiDriven,
+          );
+
     return {
       id: String(dapp.id ?? '').trim(),
       name: String(dapp.name ?? '').trim(),
@@ -427,31 +356,8 @@ export class DappsService {
       primaryCategory: this.optionalLowerText(dapp.primaryCategory) as
         | StoredDAppPrimaryCategory
         | undefined,
-      capabilities: Array.isArray(dapp.capabilities)
-        ? dapp.capabilities
-            .map((capability) => this.optionalLowerText(capability))
-            .filter((capability): capability is StoredDAppCapability =>
-              Boolean(
-                capability &&
-                  STORED_DAPP_CAPABILITIES.includes(
-                    capability as StoredDAppCapability,
-                  ),
-              ),
-            )
-        : [],
-      toolIds: Array.isArray(dapp.toolIds)
-        ? dapp.toolIds
-            .map((toolId) => this.optionalText(toolId))
-            .filter((toolId): toolId is StoredDAppToolId =>
-              Boolean(
-                toolId &&
-                  STORED_DAPP_TOOL_IDS.includes(
-                    toolId as StoredDAppToolId,
-                  ),
-              ),
-            )
-        : [],
-      aiDriven: Boolean(dapp.aiDriven) || (Array.isArray(dapp.categories) && dapp.categories.includes(this.aiDrivenCategoryId)),
+      toolIds: fallbackToolIds,
+      aiDriven,
       order: Number.isFinite(dapp.order) ? dapp.order : 0,
       url: String(dapp.url ?? '').trim(),
       featured: Boolean(dapp.featured),
@@ -514,92 +420,46 @@ export class DappsService {
     return `${this.publicBaseUrl.replace(/\/$/, '')}/${icon.replace(/^\//, '')}`;
   }
 
-  private inferCapabilities(dapp: StoredDApp): StoredDAppCapability[] {
-    const bag = new Set<StoredDAppCapability>();
-
-    if (dapp.aiDriven) {
-      bag.add('read');
-    }
-
-    const categories = (dapp.categories ?? []).map((category) =>
-      category.toLowerCase(),
-    );
-    const text = `${dapp.name} ${dapp.description} ${dapp.url}`.toLowerCase();
-
-    for (const category of categories) {
-      if (/(wallet|portfolio|history|analytics|scan|explorer|data)/.test(category)) {
-        bag.add('read');
-      }
-      if (/(swap|dex|exchange|trade|quote|price|bridge|cross)/.test(category)) {
-        bag.add('quote');
-      }
-      if (/(swap|dex|exchange|trade|bridge|cross|pay|send|transfer|execute)/.test(category)) {
-        bag.add('transact');
-      }
-      if (/(sign|auth|login|verify)/.test(category)) {
-        bag.add('sign');
-      }
-      if (/(defi|lend|loan|borrow|credit|stake|staking|yield|farm|vault|nft|collectible|mint)/.test(category)) {
-        bag.add('position');
-      }
-      if (/(game|gaming|play)/.test(category)) {
-        bag.add('game');
-      }
-    }
-
-    if (/(wallet|portfolio|balance|history|analytics|explorer)/.test(text)) {
-      bag.add('read');
-    }
-    if (/(quote|price|swap|dex|exchange|trade|bridge|cross-chain)/.test(text)) {
-      bag.add('quote');
-    }
-    if (/(execute|send|transfer|payment|swap|bridge|mint|buy|sell)/.test(text)) {
-      bag.add('transact');
-    }
-    if (/(sign|signature|auth|typed data|login)/.test(text)) {
-      bag.add('sign');
-    }
-    if (/(defi|lend|lending|loan|borrow|staking|stake|yield|farm|vault|nft|mint|collectible)/.test(text)) {
-      bag.add('position');
-    }
-    if (/(game|gaming|mahjong|play)/.test(text)) {
-      bag.add('game');
-    }
-
-    return STORED_DAPP_CAPABILITIES.filter((capability) => bag.has(capability));
-  }
-
-  private inferToolIds(input: {
-    capabilities: StoredDAppCapability[];
-    aiDriven: boolean;
-  }): StoredDAppToolId[] {
-    if (!input.aiDriven) {
-      return [];
-    }
+  private inferToolIdsFromLegacyCapabilities(
+    capabilities: unknown[],
+    aiDriven: boolean,
+  ): StoredDAppToolId[] {
+    if (!aiDriven) return [];
 
     const bag = new Set<StoredDAppToolId>();
 
-    if (input.capabilities.includes('read')) {
-      bag.add('get_wallet_info');
-      bag.add('get_balance');
-      bag.add('get_tx_history');
-    }
-    if (input.capabilities.includes('quote')) {
-      bag.add('get_swap_quote');
-    }
-    if (input.capabilities.includes('transact')) {
-      bag.add('execute_swap');
-      bag.add('send_token');
-    }
-    if (input.capabilities.includes('game')) {
-      bag.add('play_hash_mahjong');
-      bag.add('play_hash_mahjong_multi');
+    for (const item of capabilities) {
+      const value = String(item ?? '').trim().toLowerCase();
+      if (!value) continue;
+
+      if (value === 'read' || value === 'wallet_read') {
+        bag.add('get_wallet_info');
+        bag.add('get_balance');
+        bag.add('get_tx_history');
+      }
+
+      if (value === 'quote' || value === 'swap' || value === 'bridge') {
+        bag.add('get_swap_quote');
+      }
+
+      if (value === 'transact' || value === 'transfer' || value === 'swap' || value === 'bridge') {
+        bag.add('execute_swap');
+        bag.add('send_token');
+      }
+
+      if (value === 'game' || value === 'game_action') {
+        bag.add('play_hash_mahjong');
+        bag.add('play_hash_mahjong_multi');
+      }
     }
 
     return STORED_DAPP_TOOL_IDS.filter((toolId) => bag.has(toolId));
   }
 
-  private stringifyCapabilities(capabilities: StoredDAppCapability[]): string {
-    return capabilities.slice().sort().join(',');
+  private extractLegacyCapabilities(dapp: StoredDApp): unknown[] {
+    const maybeLegacy = dapp as unknown as { capabilities?: unknown };
+    return Array.isArray(maybeLegacy.capabilities)
+      ? maybeLegacy.capabilities
+      : [];
   }
 }
