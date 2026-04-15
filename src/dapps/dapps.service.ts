@@ -1,14 +1,15 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import Redis from 'ioredis';
-import type {
+import {
   StoredDAppCapability,
   StoredDApp,
   StoredDAppCategory,
   StoredDAppPrimaryCategory,
+  StoredDAppToolId,
   StoredDAppTab,
   STORED_DAPP_CAPABILITIES,
-  STORED_DAPP_PRIMARY_CATEGORIES,
+  STORED_DAPP_TOOL_IDS,
 } from './dapps.constants';
 
 type UploadedAsset = {
@@ -24,11 +25,14 @@ type UpsertDAppInput = {
   categories: StoredDAppCategory[];
   primaryCategory?: StoredDAppPrimaryCategory;
   capabilities?: StoredDAppCapability[];
+  toolIds?: StoredDAppToolId[];
   aiDriven?: boolean;
   order?: number;
   url: string;
   featured?: boolean;
   icon: string;
+  aiPrompt?: string;
+  aiPromptVersion?: string;
   mentionPrompt?: string;
   mentionLabel?: string;
   mentionThemeKey?: string;
@@ -52,6 +56,7 @@ type BackfillPreviewRow = {
 export class DappsService {
   private readonly cacheKey = 'inj-pass:dapps:directory:v1';
   private readonly tabsCacheKey = 'inj-pass:dapps:tabs:v1';
+  private readonly aiDrivenCategoryId = 'ai-driven';
   private readonly s3Client: S3Client;
   private readonly bucket: string;
   private readonly publicBaseUrl: string;
@@ -100,6 +105,8 @@ export class DappsService {
         dapp.name.toLowerCase().includes(keyword) ||
         dapp.description.toLowerCase().includes(keyword) ||
         dapp.url.toLowerCase().includes(keyword) ||
+        (dapp.aiPrompt ?? '').toLowerCase().includes(keyword) ||
+        (dapp.aiPromptVersion ?? '').toLowerCase().includes(keyword) ||
         (dapp.mentionPrompt ?? '').toLowerCase().includes(keyword) ||
         (dapp.mentionLabel ?? '').toLowerCase().includes(keyword) ||
         (dapp.mentionThemeKey ?? '').toLowerCase().includes(keyword) ||
@@ -169,7 +176,10 @@ export class DappsService {
       throw new BadRequestException('At least one DApp category is required.');
     }
 
-    const invalidCategories = categories.filter(
+    const aiDriven = Boolean(input.aiDriven) || categories.includes(this.aiDrivenCategoryId);
+    const filteredCategories = categories.filter((category) => category !== this.aiDrivenCategoryId);
+
+    const invalidCategories = filteredCategories.filter(
       (category) => !allowedCategories.has(category),
     );
     if (invalidCategories.length > 0) {
@@ -181,12 +191,10 @@ export class DappsService {
     const normalizedPrimaryCategory = input.primaryCategory?.trim().toLowerCase();
     if (
       normalizedPrimaryCategory &&
-      !STORED_DAPP_PRIMARY_CATEGORIES.includes(
-        normalizedPrimaryCategory as StoredDAppPrimaryCategory,
-      )
+      !filteredCategories.includes(normalizedPrimaryCategory)
     ) {
       throw new BadRequestException(
-        `Unsupported primaryCategory: ${normalizedPrimaryCategory}`,
+        `primaryCategory must be one of selected categories: ${filteredCategories.join(', ')}`,
       );
     }
 
@@ -207,6 +215,37 @@ export class DappsService {
       );
     }
 
+    const normalizedToolIds = Array.from(
+      new Set(
+        (input.toolIds ?? [])
+          .map((toolId) => toolId.trim())
+          .filter(Boolean),
+      ),
+    ) as StoredDAppToolId[];
+
+    const invalidToolIds = normalizedToolIds.filter(
+      (toolId) => !STORED_DAPP_TOOL_IDS.includes(toolId),
+    );
+    if (invalidToolIds.length > 0) {
+      throw new BadRequestException(
+        `Unsupported toolIds: ${invalidToolIds.join(', ')}`,
+      );
+    }
+
+    if (!aiDriven && normalizedToolIds.length > 0) {
+      throw new BadRequestException(
+        'toolIds can only be set for AI-driven dapps.',
+      );
+    }
+
+    const nextToolIds =
+      normalizedToolIds.length > 0
+        ? normalizedToolIds
+        : this.inferToolIds({
+            capabilities: normalizedCapabilities,
+            aiDriven,
+          });
+
     const dapps = await this.getStoredDapps();
     const now = new Date().toISOString();
     const id = input.id?.trim() || `${Date.now()}`;
@@ -215,12 +254,13 @@ export class DappsService {
       id,
       name: input.name.trim(),
       description: input.description.trim(),
-      categories,
+      categories: filteredCategories,
       primaryCategory: normalizedPrimaryCategory as
         | StoredDAppPrimaryCategory
         | undefined,
       capabilities: normalizedCapabilities,
-      aiDriven: Boolean(input.aiDriven),
+      toolIds: nextToolIds,
+      aiDriven,
       order:
         typeof input.order === 'number' && Number.isFinite(input.order)
           ? input.order
@@ -228,6 +268,8 @@ export class DappsService {
       url: input.url.trim(),
       icon: this.toPublicUrl(input.icon.trim()),
       featured: Boolean(input.featured),
+      aiPrompt: this.optionalText(input.aiPrompt),
+      aiPromptVersion: this.optionalText(input.aiPromptVersion),
       mentionPrompt: this.optionalText(input.mentionPrompt),
       mentionLabel: this.optionalText(input.mentionLabel),
       mentionThemeKey: this.optionalLowerText(input.mentionThemeKey),
@@ -380,6 +422,7 @@ export class DappsService {
       icon: String(dapp.icon ?? '').trim(),
       categories: Array.isArray(dapp.categories)
         ? dapp.categories.filter((category): category is string => Boolean(category && category.trim()))
+            .filter((category) => category !== this.aiDrivenCategoryId)
         : [],
       primaryCategory: this.optionalLowerText(dapp.primaryCategory) as
         | StoredDAppPrimaryCategory
@@ -396,10 +439,24 @@ export class DappsService {
               ),
             )
         : [],
-      aiDriven: Boolean(dapp.aiDriven),
+      toolIds: Array.isArray(dapp.toolIds)
+        ? dapp.toolIds
+            .map((toolId) => this.optionalText(toolId))
+            .filter((toolId): toolId is StoredDAppToolId =>
+              Boolean(
+                toolId &&
+                  STORED_DAPP_TOOL_IDS.includes(
+                    toolId as StoredDAppToolId,
+                  ),
+              ),
+            )
+        : [],
+      aiDriven: Boolean(dapp.aiDriven) || (Array.isArray(dapp.categories) && dapp.categories.includes(this.aiDrivenCategoryId)),
       order: Number.isFinite(dapp.order) ? dapp.order : 0,
       url: String(dapp.url ?? '').trim(),
       featured: Boolean(dapp.featured),
+      aiPrompt: this.optionalText(dapp.aiPrompt),
+      aiPromptVersion: this.optionalText(dapp.aiPromptVersion),
       mentionPrompt: this.optionalText(dapp.mentionPrompt),
       mentionLabel: this.optionalText(dapp.mentionLabel),
       mentionThemeKey: this.optionalLowerText(dapp.mentionThemeKey),
@@ -461,7 +518,7 @@ export class DappsService {
     const bag = new Set<StoredDAppCapability>();
 
     if (dapp.aiDriven) {
-      bag.add('wallet_read');
+      bag.add('read');
     }
 
     const categories = (dapp.categories ?? []).map((category) =>
@@ -470,64 +527,76 @@ export class DappsService {
     const text = `${dapp.name} ${dapp.description} ${dapp.url}`.toLowerCase();
 
     for (const category of categories) {
+      if (/(wallet|portfolio|history|analytics|scan|explorer|data)/.test(category)) {
+        bag.add('read');
+      }
+      if (/(swap|dex|exchange|trade|quote|price|bridge|cross)/.test(category)) {
+        bag.add('quote');
+      }
+      if (/(swap|dex|exchange|trade|bridge|cross|pay|send|transfer|execute)/.test(category)) {
+        bag.add('transact');
+      }
+      if (/(sign|auth|login|verify)/.test(category)) {
+        bag.add('sign');
+      }
+      if (/(defi|lend|loan|borrow|credit|stake|staking|yield|farm|vault|nft|collectible|mint)/.test(category)) {
+        bag.add('position');
+      }
       if (/(game|gaming|play)/.test(category)) {
-        bag.add('game_action');
-      }
-      if (/(swap|dex|exchange|trade)/.test(category)) {
-        bag.add('swap');
-      }
-      if (/(bridge|cross)/.test(category)) {
-        bag.add('bridge');
-      }
-      if (/(nft|collectible)/.test(category)) {
-        bag.add('nft_mint');
-      }
-      if (/(defi|lend|loan)/.test(category)) {
-        bag.add('defi_lend');
-      }
-      if (/(borrow|credit)/.test(category)) {
-        bag.add('defi_borrow');
-      }
-      if (/(stake|staking|yield|farm)/.test(category)) {
-        bag.add('defi_stake');
-      }
-      if (/(wallet|portfolio|history)/.test(category)) {
-        bag.add('wallet_read');
-      }
-      if (/(pay|send|transfer)/.test(category)) {
-        bag.add('transfer');
-      }
-      if (/(sign|auth)/.test(category)) {
-        bag.add('sign_message');
+        bag.add('game');
       }
     }
 
-    if (/(swap|dex|exchange|trade)/.test(text)) {
-      bag.add('swap');
+    if (/(wallet|portfolio|balance|history|analytics|explorer)/.test(text)) {
+      bag.add('read');
     }
-    if (/(send|transfer|payment)/.test(text)) {
-      bag.add('transfer');
+    if (/(quote|price|swap|dex|exchange|trade|bridge|cross-chain)/.test(text)) {
+      bag.add('quote');
     }
-    if (/(game|mahjong|play)/.test(text)) {
-      bag.add('game_action');
+    if (/(execute|send|transfer|payment|swap|bridge|mint|buy|sell)/.test(text)) {
+      bag.add('transact');
     }
-    if (/(stake|staking|yield|farm)/.test(text)) {
-      bag.add('defi_stake');
+    if (/(sign|signature|auth|typed data|login)/.test(text)) {
+      bag.add('sign');
     }
-    if (/(lend|lending|loan)/.test(text)) {
-      bag.add('defi_lend');
+    if (/(defi|lend|lending|loan|borrow|staking|stake|yield|farm|vault|nft|mint|collectible)/.test(text)) {
+      bag.add('position');
     }
-    if (/(borrow|borrowing|credit)/.test(text)) {
-      bag.add('defi_borrow');
-    }
-    if (/(bridge|cross-chain)/.test(text)) {
-      bag.add('bridge');
-    }
-    if (/(nft|mint)/.test(text)) {
-      bag.add('nft_mint');
+    if (/(game|gaming|mahjong|play)/.test(text)) {
+      bag.add('game');
     }
 
     return STORED_DAPP_CAPABILITIES.filter((capability) => bag.has(capability));
+  }
+
+  private inferToolIds(input: {
+    capabilities: StoredDAppCapability[];
+    aiDriven: boolean;
+  }): StoredDAppToolId[] {
+    if (!input.aiDriven) {
+      return [];
+    }
+
+    const bag = new Set<StoredDAppToolId>();
+
+    if (input.capabilities.includes('read')) {
+      bag.add('get_wallet_info');
+      bag.add('get_balance');
+      bag.add('get_tx_history');
+    }
+    if (input.capabilities.includes('quote')) {
+      bag.add('get_swap_quote');
+    }
+    if (input.capabilities.includes('transact')) {
+      bag.add('execute_swap');
+      bag.add('send_token');
+    }
+    if (input.capabilities.includes('game')) {
+      bag.add('play_hash_mahjong');
+      bag.add('play_hash_mahjong_multi');
+    }
+
+    return STORED_DAPP_TOOL_IDS.filter((toolId) => bag.has(toolId));
   }
 
   private stringifyCapabilities(capabilities: StoredDAppCapability[]): string {

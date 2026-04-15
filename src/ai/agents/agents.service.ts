@@ -12,13 +12,13 @@ import * as gameTools from './tools/game.tools';
 
 const TOOL_TO_CAPABILITY: Record<string, StoredDAppCapability | 'base'> = {
   get_wallet_info: 'base',
-  get_balance: 'wallet_read',
-  get_tx_history: 'wallet_read',
-  get_swap_quote: 'swap',
-  execute_swap: 'swap',
-  send_token: 'transfer',
-  play_hash_mahjong: 'game_action',
-  play_hash_mahjong_multi: 'game_action',
+  get_balance: 'read',
+  get_tx_history: 'read',
+  get_swap_quote: 'quote',
+  execute_swap: 'transact',
+  send_token: 'transact',
+  play_hash_mahjong: 'game',
+  play_hash_mahjong_multi: 'game',
 };
 
 export type AgentToolPolicy = {
@@ -41,7 +41,15 @@ export class AgentsService {
     context: AgentContext,
     policy?: AgentToolPolicy,
   ): Promise<string> {
-    this.logger.log(`[executeTool] ${name}`, input);
+    const safeInput = input ?? {};
+    const formattedInput =
+      Object.keys(safeInput).length === 0
+        ? '[no-args]'
+        : JSON.stringify(safeInput);
+
+    this.logger.log(
+      `[executeTool] ${name} input=${formattedInput}`,
+    );
 
     if (!this.isToolAllowed(name, policy)) {
       this.logger.warn(

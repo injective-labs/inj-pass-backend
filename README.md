@@ -295,6 +295,10 @@ ORIGINS=https://injpass.com,http://localhost:3000
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_BASE_URL=https://api.anthropic.com
 
+# Agent / Tool EVM network (optional overrides)
+INJECTIVE_EVM_RPC=https://sentry.evm-rpc.injective.network/
+INJECTIVE_EVM_CHAIN_ID=1776
+
 # AI 计费配置 (可选，有默认值)
 # NINJA_PER_DOLLAR=100
 
