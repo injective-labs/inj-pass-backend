@@ -62,6 +62,12 @@ export function getSharedAiEnv(key: string): string | undefined {
     return direct;
   }
 
+  // In production we should only trust backend runtime env.
+  // Frontend .env fallback is for local development convenience only.
+  if (process.env.NODE_ENV === 'production') {
+    return undefined;
+  }
+
   const frontendValue = loadFrontendEnv()[key]?.trim();
   return frontendValue || undefined;
 }
