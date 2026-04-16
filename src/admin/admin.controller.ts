@@ -28,6 +28,21 @@ class AdminUsersQueryDto {
   @Type(() => Number)
   @IsNumber()
   limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['true', 'false'])
+  hasChancePurchase?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['createdAt', 'ninjaBalance', 'aiWalletCount'])
+  sortBy?: 'createdAt' | 'ninjaBalance' | 'aiWalletCount';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['asc', 'desc'])
+  sortDir?: 'asc' | 'desc';
 }
 
 class AdminPasskeyCredentialsQueryDto {
@@ -35,6 +50,18 @@ class AdminPasskeyCredentialsQueryDto {
   @IsString()
   query?: string;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number;
+}
+
+class AdminListQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -116,6 +143,43 @@ export class AdminController {
     }
 
     return detail;
+  }
+
+  @Get('users/:id/ai-wallets')
+  async getUserAiWallets(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: AdminListQueryDto,
+  ) {
+    const result = await this.adminService.getUserAiWallets(id, query);
+    if (!result) {
+      throw new NotFoundException('User not found');
+    }
+    return result;
+  }
+
+  @Get('users/:id/ai-wallets/:address')
+  async getUserAiWalletDetail(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('address') address: string,
+    @Query() query: AdminListQueryDto,
+  ) {
+    const detail = await this.adminService.getUserAiWalletDetail(id, address, query);
+    if (!detail) {
+      throw new NotFoundException('AI wallet not found');
+    }
+    return detail;
+  }
+
+  @Get('users/:id/chance-purchases')
+  async getUserChancePurchases(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: AdminListQueryDto,
+  ) {
+    const result = await this.adminService.getUserChancePurchases(id, query);
+    if (!result) {
+      throw new NotFoundException('User not found');
+    }
+    return result;
   }
 
   @Patch('users/:id/ninja-balance')
