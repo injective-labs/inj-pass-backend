@@ -107,6 +107,21 @@ class ConsumeChanceDto {
   cooldownSeconds?: number;
 }
 
+class AdjustNinjaDto {
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0.01)
+  amount!: number;
+
+  @IsString()
+  @IsOptional()
+  source?: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
+}
+
 @Controller('points')
 export class PointsController {
   private readonly logger = new Logger(PointsController.name);
@@ -182,6 +197,20 @@ export class PointsController {
     }
 
     return this.pointsService.getBalance(credentialId);
+  }
+
+  @Get('status')
+  async getStatus(@Headers('authorization') authHeader: string) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      return {
+        balance: 0,
+        chanceRemaining: 0,
+        chanceCooldownEndsAt: 0,
+      };
+    }
+
+    return this.pointsService.getStatus(credentialId);
   }
 
   /**
@@ -266,6 +295,42 @@ export class PointsController {
       this.logger.error(`Consume chance failed: ${message}`);
       return { success: false, error: message };
     }
+  }
+
+  @Post('credit')
+  async creditNinja(
+    @Headers('authorization') authHeader: string,
+    @Body() dto: AdjustNinjaDto,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    return this.pointsService.adjustNinjaBalance(credentialId, {
+      amount: dto.amount,
+      operation: 'credit',
+      reason: dto.reason,
+      source: dto.source,
+    });
+  }
+
+  @Post('debit')
+  async debitNinja(
+    @Headers('authorization') authHeader: string,
+    @Body() dto: AdjustNinjaDto,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    return this.pointsService.adjustNinjaBalance(credentialId, {
+      amount: dto.amount,
+      operation: 'debit',
+      reason: dto.reason,
+      source: dto.source,
+    });
   }
 
   /**
