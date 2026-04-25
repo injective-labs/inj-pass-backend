@@ -14,10 +14,25 @@ import {
 import { AIService } from './ai.service';
 import { AuthService } from '../auth/auth.service';
 import { ChatRecordRequest } from './dto/chat-record.dto';
+import {
+  AgentChatRequestDto,
+  AgentClientToolResultDto,
+  AgentConfirmRequestDto,
+  AgentSweepRequestDto,
+} from './dto/agent-chat.dto';
+import { AgentOrchestratorService } from './agent-orchestrator.service';
 
 interface SyncConversationRequest {
   conversationId: string;
   messages: { role: 'user' | 'assistant'; content: string }[];
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 @Controller('ai')
@@ -27,6 +42,7 @@ export class AIController {
   constructor(
     private readonly aiService: AIService,
     private readonly authService: AuthService,
+    private readonly agentOrchestratorService: AgentOrchestratorService,
   ) {}
 
   /**
@@ -64,8 +80,95 @@ export class AIController {
     try {
       return await this.aiService.recordChat(credentialId, dto);
     } catch (error) {
-      this.logger.error(`Record chat failed: ${error.message}`);
-      return { ok: false, error: error.message };
+      const message = getErrorMessage(error);
+      this.logger.error(`Record chat failed: ${message}`);
+      return { ok: false, error: message };
+    }
+  }
+
+  @Post('agent/chat')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async agentChat(
+    @Headers('authorization') authHeader: string,
+    @Body() dto: AgentChatRequestDto,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
+    try {
+      return await this.agentOrchestratorService.chat(credentialId, dto);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      this.logger.error(`Agent chat failed: ${message}`);
+      return { ok: false, error: message };
+    }
+  }
+
+  @Post('agent/confirm')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async confirmAgentAction(
+    @Headers('authorization') authHeader: string,
+    @Body() dto: AgentConfirmRequestDto,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
+    try {
+      return await this.agentOrchestratorService.confirm(credentialId, dto);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      this.logger.error(`Agent confirm failed: ${message}`);
+      return { ok: false, error: message };
+    }
+  }
+
+  @Post('agent/client-tool-result')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async submitClientToolResult(
+    @Headers('authorization') authHeader: string,
+    @Body() dto: AgentClientToolResultDto,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
+    try {
+      return await this.agentOrchestratorService.submitClientToolResult(
+        credentialId,
+        dto,
+      );
+    } catch (error) {
+      const message = getErrorMessage(error);
+      this.logger.error(`Client tool result failed: ${message}`);
+      return { ok: false, error: message };
+    }
+  }
+
+  @Post('agent/sweep')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async sweepSandbox(
+    @Headers('authorization') authHeader: string,
+    @Body() dto: AgentSweepRequestDto,
+  ) {
+    const credentialId = await this.getCredentialId(authHeader);
+    if (!credentialId) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
+    try {
+      return await this.agentOrchestratorService.sweepSandbox(
+        credentialId,
+        dto.conversationId,
+      );
+    } catch (error) {
+      const message = getErrorMessage(error);
+      this.logger.error(`Agent sweep failed: ${message}`);
+      return { ok: false, error: message };
     }
   }
 
@@ -91,8 +194,9 @@ export class AIController {
 
       return result;
     } catch (error) {
-      this.logger.error(`Sync conversation failed: ${error.message}`);
-      return { success: false, error: error.message };
+      const message = getErrorMessage(error);
+      this.logger.error(`Sync conversation failed: ${message}`);
+      return { success: false, error: message };
     }
   }
 
@@ -138,6 +242,7 @@ export class AIController {
       throw new UnauthorizedException('Unauthorized');
     }
 
+    await this.agentOrchestratorService.deleteConversationSession(conversationId);
     return this.aiService.deleteConversation(credentialId, conversationId);
   }
 }

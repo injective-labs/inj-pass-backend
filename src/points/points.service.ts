@@ -294,23 +294,55 @@ export class PointsService {
   }
 
   /**
-   * Get user's NINJA balance
+   * Get user's NINJA status
    */
-  async getBalance(credentialId: string): Promise<{ balance: number }> {
+  async getStatus(credentialId: string): Promise<{
+    balance: number;
+    chanceRemaining: number;
+    chanceCooldownEndsAt: number;
+  }> {
     const user = await this.userRepository.findOne({
       where: { credentialId },
     });
 
     if (!user) {
-      return { balance: 0 };
+      return {
+        balance: 0,
+        chanceRemaining: 0,
+        chanceCooldownEndsAt: 0,
+      };
     }
 
     const rawBalance = Number(user.ninjaBalance);
     const safeBalance = Number.isFinite(rawBalance) ? rawBalance : 0;
+    const safeChanceRemaining = Math.max(
+      0,
+      Math.floor(
+        Number(
+          (user as User & { chanceRemaining?: number }).chanceRemaining,
+        ) || 0,
+      ),
+    );
+    const safeChanceCooldownEndsAt = Math.max(
+      0,
+      Math.floor(
+        Number(
+          (user as User & { chanceCooldownEndsAt?: number })
+            .chanceCooldownEndsAt,
+        ) || 0,
+      ),
+    );
 
     return {
       balance: safeBalance,
+      chanceRemaining: safeChanceRemaining,
+      chanceCooldownEndsAt: safeChanceCooldownEndsAt,
     };
+  }
+
+  async getBalance(credentialId: string): Promise<{ balance: number }> {
+    const status = await this.getStatus(credentialId);
+    return { balance: status.balance };
   }
 
   /**
@@ -418,6 +450,94 @@ export class PointsService {
         success: true,
         chanceRemaining: nextChance,
         chanceCooldownEndsAt: nextCooldownEndsAt,
+      };
+    });
+  }
+
+  async adjustNinjaBalance(
+    credentialId: string,
+    params: {
+      amount: number;
+      operation: 'credit' | 'debit';
+      reason?: string;
+      source?: string;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<{
+    success: boolean;
+    balance?: number;
+    delta?: number;
+    transactionId?: number;
+    error?: string;
+  }> {
+    const normalizedAmount = Number(params.amount);
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      return { success: false, error: 'Invalid amount' };
+    }
+
+    const safeAmount = Math.round(normalizedAmount * 100) / 100;
+    await this.userService.ensureUserExists(credentialId);
+
+    return this.userRepository.manager.transaction(async (manager) => {
+      const txUserRepo = manager.getRepository(User);
+      const txPointsRepo = manager.getRepository(PointsTransaction);
+      const user = await txUserRepo
+        .createQueryBuilder('user')
+        .setLock('pessimistic_write')
+        .where('user.credentialId = :credentialId', { credentialId })
+        .getOne();
+
+      if (!user) {
+        return { success: false, error: 'User not found' };
+      }
+
+      const currentBalance = Number(user.ninjaBalance);
+      const safeCurrentBalance = Number.isFinite(currentBalance)
+        ? currentBalance
+        : 0;
+      const signedDelta =
+        params.operation === 'debit' ? -safeAmount : safeAmount;
+      const nextBalance = Math.round(
+        Math.max(0, safeCurrentBalance + signedDelta) * 100,
+      ) / 100;
+      const appliedDelta = Math.round(
+        (nextBalance - safeCurrentBalance) * 100,
+      ) / 100;
+
+      if (params.operation === 'debit' && appliedDelta === 0) {
+        return {
+          success: false,
+          error: 'Insufficient NINJA balance',
+          balance: safeCurrentBalance,
+          delta: 0,
+        };
+      }
+
+      user.ninjaBalance = nextBalance;
+      await txUserRepo.save(user);
+
+      const transaction = await txPointsRepo.save({
+        userId: user.id,
+        type:
+          params.operation === 'debit'
+            ? 'sdk_ninja_debit'
+            : 'sdk_ninja_credit',
+        amount: appliedDelta,
+        balanceAfter: nextBalance,
+        metadata: {
+          reason: params.reason?.trim() || null,
+          source: params.source?.trim() || 'embed_sdk',
+          requestedAmount: safeAmount,
+          operation: params.operation,
+          ...(params.metadata ?? {}),
+        },
+      });
+
+      return {
+        success: true,
+        balance: nextBalance,
+        delta: appliedDelta,
+        transactionId: transaction.id,
       };
     });
   }

@@ -16,6 +16,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -23,7 +24,13 @@ import {
 } from 'class-validator';
 import { DappsService } from './dapps.service';
 import { AdminGuard } from '../admin/admin.guard';
-import type { StoredDAppCategory } from './dapps.constants';
+import {
+  STORED_DAPP_TOOL_IDS,
+  STORED_TOOL_DEFINITIONS,
+  type StoredDAppCategory,
+  type StoredDAppPrimaryCategory,
+  type StoredDAppToolId,
+} from './dapps.constants';
 
 type UploadedAsset = {
   originalname: string;
@@ -42,6 +49,20 @@ class UpsertDAppDto {
   @IsString({ each: true })
   categories: StoredDAppCategory[];
 
+  @IsOptional()
+  @IsString()
+  primaryCategory?: StoredDAppPrimaryCategory;
+
+  @IsOptional()
+  @IsBoolean()
+  aiDriven?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @IsIn(STORED_DAPP_TOOL_IDS, { each: true })
+  toolIds?: StoredDAppToolId[];
+
   @IsString()
   url: string;
 
@@ -55,6 +76,26 @@ class UpsertDAppDto {
   @IsOptional()
   @IsBoolean()
   featured?: boolean;
+
+  @IsOptional()
+  @IsString()
+  aiPrompt?: string;
+
+  @IsOptional()
+  @IsString()
+  aiPromptVersion?: string;
+
+  @IsOptional()
+  @IsString()
+  mentionPrompt?: string;
+
+  @IsOptional()
+  @IsString()
+  mentionLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  mentionThemeKey?: string;
 }
 
 class UpdateDAppTabsDto {
@@ -88,7 +129,7 @@ export class DappsController {
       this.dappsService.getPublicDapps(),
       this.dappsService.getPublicTabs(),
     ]);
-    return { dapps, tabs };
+    return { dapps, tabs, tools: STORED_TOOL_DEFINITIONS };
   }
 
   @UseGuards(AdminGuard)
@@ -98,7 +139,7 @@ export class DappsController {
       this.dappsService.getAdminDapps(query),
       this.dappsService.getAdminTabs(),
     ]);
-    return { dapps, tabs };
+    return { dapps, tabs, tools: STORED_TOOL_DEFINITIONS };
   }
 
   @UseGuards(AdminGuard)

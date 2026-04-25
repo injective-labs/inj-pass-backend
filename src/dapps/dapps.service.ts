@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import Redis from 'ioredis';
-import type {
+import {
   StoredDApp,
   StoredDAppCategory,
+  StoredDAppPrimaryCategory,
+  StoredDAppToolId,
   StoredDAppTab,
+  STORED_DAPP_TOOL_IDS,
 } from './dapps.constants';
 
 type UploadedAsset = {
@@ -18,16 +21,25 @@ type UpsertDAppInput = {
   name: string;
   description: string;
   categories: StoredDAppCategory[];
+  primaryCategory?: StoredDAppPrimaryCategory;
+  toolIds?: StoredDAppToolId[];
+  aiDriven?: boolean;
   order?: number;
   url: string;
   featured?: boolean;
   icon: string;
+  aiPrompt?: string;
+  aiPromptVersion?: string;
+  mentionPrompt?: string;
+  mentionLabel?: string;
+  mentionThemeKey?: string;
 };
 
 @Injectable()
 export class DappsService {
   private readonly cacheKey = 'inj-pass:dapps:directory:v1';
   private readonly tabsCacheKey = 'inj-pass:dapps:tabs:v1';
+  private readonly aiDrivenCategoryId = 'ai-driven';
   private readonly s3Client: S3Client;
   private readonly bucket: string;
   private readonly publicBaseUrl: string;
@@ -76,6 +88,16 @@ export class DappsService {
         dapp.name.toLowerCase().includes(keyword) ||
         dapp.description.toLowerCase().includes(keyword) ||
         dapp.url.toLowerCase().includes(keyword) ||
+        (dapp.aiPrompt ?? '').toLowerCase().includes(keyword) ||
+        (dapp.aiPromptVersion ?? '').toLowerCase().includes(keyword) ||
+        (dapp.mentionPrompt ?? '').toLowerCase().includes(keyword) ||
+        (dapp.mentionLabel ?? '').toLowerCase().includes(keyword) ||
+        (dapp.mentionThemeKey ?? '').toLowerCase().includes(keyword) ||
+        (dapp.primaryCategory ?? '').toLowerCase().includes(keyword) ||
+        (dapp.aiDriven ? 'ai-driven' : '').includes(keyword) ||
+        (dapp.toolIds ?? []).some((toolId) =>
+          toolId.toLowerCase().includes(keyword),
+        ) ||
         dapp.categories.some((category) =>
           category.toLowerCase().includes(keyword),
         ),
@@ -118,6 +140,7 @@ export class DappsService {
     }
 
     await this.redisClient.set(this.tabsCacheKey, JSON.stringify(normalized));
+
     return normalized;
   }
 
@@ -136,7 +159,10 @@ export class DappsService {
       throw new BadRequestException('At least one DApp category is required.');
     }
 
-    const invalidCategories = categories.filter(
+    const aiDriven = Boolean(input.aiDriven) || categories.includes(this.aiDrivenCategoryId);
+    const filteredCategories = categories.filter((category) => category !== this.aiDrivenCategoryId);
+
+    const invalidCategories = filteredCategories.filter(
       (category) => !allowedCategories.has(category),
     );
     if (invalidCategories.length > 0) {
@@ -144,6 +170,41 @@ export class DappsService {
         `DApp categories are not defined in tabs: ${invalidCategories.join(', ')}`,
       );
     }
+
+    const normalizedPrimaryCategory = input.primaryCategory?.trim().toLowerCase();
+    if (
+      normalizedPrimaryCategory &&
+      !filteredCategories.includes(normalizedPrimaryCategory)
+    ) {
+      throw new BadRequestException(
+        `primaryCategory must be one of selected categories: ${filteredCategories.join(', ')}`,
+      );
+    }
+
+    const normalizedToolIds = Array.from(
+      new Set(
+        (input.toolIds ?? [])
+          .map((toolId) => toolId.trim())
+          .filter(Boolean),
+      ),
+    ) as StoredDAppToolId[];
+
+    const invalidToolIds = normalizedToolIds.filter(
+      (toolId) => !STORED_DAPP_TOOL_IDS.includes(toolId),
+    );
+    if (invalidToolIds.length > 0) {
+      throw new BadRequestException(
+        `Unsupported toolIds: ${invalidToolIds.join(', ')}`,
+      );
+    }
+
+    if (!aiDriven && normalizedToolIds.length > 0) {
+      throw new BadRequestException(
+        'toolIds can only be set for AI-driven dapps.',
+      );
+    }
+
+    const nextToolIds = aiDriven ? normalizedToolIds : [];
 
     const dapps = await this.getStoredDapps();
     const now = new Date().toISOString();
@@ -153,7 +214,12 @@ export class DappsService {
       id,
       name: input.name.trim(),
       description: input.description.trim(),
-      categories,
+      categories: filteredCategories,
+      primaryCategory: normalizedPrimaryCategory as
+        | StoredDAppPrimaryCategory
+        | undefined,
+      toolIds: nextToolIds,
+      aiDriven,
       order:
         typeof input.order === 'number' && Number.isFinite(input.order)
           ? input.order
@@ -161,6 +227,11 @@ export class DappsService {
       url: input.url.trim(),
       icon: this.toPublicUrl(input.icon.trim()),
       featured: Boolean(input.featured),
+      aiPrompt: this.optionalText(input.aiPrompt),
+      aiPromptVersion: this.optionalText(input.aiPromptVersion),
+      mentionPrompt: this.optionalText(input.mentionPrompt),
+      mentionLabel: this.optionalText(input.mentionLabel),
+      mentionThemeKey: this.optionalLowerText(input.mentionThemeKey),
       createdAt: now,
       updatedAt: now,
     };
@@ -209,18 +280,8 @@ export class DappsService {
           throw new Error('Invalid dapp payload');
         }
 
-        for (const dapp of parsed) {
-          if (!Array.isArray(dapp.categories)) {
-            throw new Error('Invalid dapp categories payload');
-          }
-        }
-
         return parsed
-          .map((dapp) => ({
-            ...dapp,
-            order: Number.isFinite(dapp.order) ? dapp.order : 0,
-            categories: dapp.categories.filter(Boolean),
-          }))
+          .map((dapp) => this.normalizeStoredDapp(dapp))
           .sort(
             (left, right) =>
               right.order - left.order ||
@@ -238,9 +299,9 @@ export class DappsService {
     const cached = await this.redisClient.get(this.tabsCacheKey);
     if (cached) {
       try {
-        return (JSON.parse(cached) as StoredDAppTab[]).sort(
-          (left, right) => left.order - right.order,
-        );
+        return (JSON.parse(cached) as StoredDAppTab[])
+          .map((tab) => this.normalizeStoredTab(tab))
+          .sort((left, right) => left.order - right.order);
       } catch {
         await this.redisClient.del(this.tabsCacheKey);
       }
@@ -258,6 +319,65 @@ export class DappsService {
           right.updatedAt.localeCompare(left.updatedAt),
       );
     await this.redisClient.set(this.cacheKey, JSON.stringify(sorted));
+  }
+
+  private normalizeStoredDapp(dapp: StoredDApp): StoredDApp {
+    const aiDriven =
+      Boolean(dapp.aiDriven) ||
+      (Array.isArray(dapp.categories) &&
+        dapp.categories.includes(this.aiDrivenCategoryId));
+    const normalizedToolIds = Array.isArray(dapp.toolIds)
+      ? dapp.toolIds
+          .map((toolId) => this.optionalText(toolId))
+          .filter((toolId): toolId is StoredDAppToolId =>
+            Boolean(
+              toolId &&
+                STORED_DAPP_TOOL_IDS.includes(toolId as StoredDAppToolId),
+            ),
+          )
+      : [];
+    const fallbackToolIds =
+      normalizedToolIds.length > 0
+        ? normalizedToolIds
+        : this.inferToolIdsFromLegacyCapabilities(
+            this.extractLegacyCapabilities(dapp),
+            aiDriven,
+          );
+
+    return {
+      id: String(dapp.id ?? '').trim(),
+      name: String(dapp.name ?? '').trim(),
+      description: String(dapp.description ?? '').trim(),
+      icon: String(dapp.icon ?? '').trim(),
+      categories: Array.isArray(dapp.categories)
+        ? dapp.categories.filter((category): category is string => Boolean(category && category.trim()))
+            .filter((category) => category !== this.aiDrivenCategoryId)
+        : [],
+      primaryCategory: this.optionalLowerText(dapp.primaryCategory) as
+        | StoredDAppPrimaryCategory
+        | undefined,
+      toolIds: fallbackToolIds,
+      aiDriven,
+      order: Number.isFinite(dapp.order) ? dapp.order : 0,
+      url: String(dapp.url ?? '').trim(),
+      featured: Boolean(dapp.featured),
+      aiPrompt: this.optionalText(dapp.aiPrompt),
+      aiPromptVersion: this.optionalText(dapp.aiPromptVersion),
+      mentionPrompt: this.optionalText(dapp.mentionPrompt),
+      mentionLabel: this.optionalText(dapp.mentionLabel),
+      mentionThemeKey: this.optionalLowerText(dapp.mentionThemeKey),
+      createdAt: dapp.createdAt,
+      updatedAt: dapp.updatedAt,
+    };
+  }
+
+  private normalizeStoredTab(tab: StoredDAppTab): StoredDAppTab {
+    return {
+      id: String(tab.id ?? '').trim(),
+      label: String(tab.label ?? '').trim(),
+      order: Number.isFinite(tab.order) ? tab.order : 0,
+      enabled: Boolean(tab.enabled),
+    };
   }
 
   private getExtension(filename: string, mimeType: string) {
@@ -282,11 +402,64 @@ export class DappsService {
     return normalized || 'dapp';
   }
 
+  private optionalText(value?: string) {
+    const normalized = value?.trim();
+    return normalized ? normalized : undefined;
+  }
+
+  private optionalLowerText(value?: string) {
+    const normalized = value?.trim().toLowerCase();
+    return normalized ? normalized : undefined;
+  }
+
   private toPublicUrl(icon: string) {
     if (!icon) return icon;
     if (icon.startsWith('http') || icon.startsWith('/')) return icon;
     if (!icon.startsWith('dapp/')) return icon;
     if (!this.publicBaseUrl) return icon;
     return `${this.publicBaseUrl.replace(/\/$/, '')}/${icon.replace(/^\//, '')}`;
+  }
+
+  private inferToolIdsFromLegacyCapabilities(
+    capabilities: unknown[],
+    aiDriven: boolean,
+  ): StoredDAppToolId[] {
+    if (!aiDriven) return [];
+
+    const bag = new Set<StoredDAppToolId>();
+
+    for (const item of capabilities) {
+      const value = String(item ?? '').trim().toLowerCase();
+      if (!value) continue;
+
+      if (value === 'read' || value === 'wallet_read') {
+        bag.add('get_wallet_info');
+        bag.add('get_balance');
+        bag.add('get_tx_history');
+      }
+
+      if (value === 'quote' || value === 'swap' || value === 'bridge') {
+        bag.add('get_swap_quote');
+      }
+
+      if (value === 'transact' || value === 'transfer' || value === 'swap' || value === 'bridge') {
+        bag.add('execute_swap');
+        bag.add('send_token');
+      }
+
+      if (value === 'game' || value === 'game_action') {
+        bag.add('play_hash_mahjong');
+        bag.add('play_hash_mahjong_multi');
+      }
+    }
+
+    return STORED_DAPP_TOOL_IDS.filter((toolId) => bag.has(toolId));
+  }
+
+  private extractLegacyCapabilities(dapp: StoredDApp): unknown[] {
+    const maybeLegacy = dapp as unknown as { capabilities?: unknown };
+    return Array.isArray(maybeLegacy.capabilities)
+      ? maybeLegacy.capabilities
+      : [];
   }
 }

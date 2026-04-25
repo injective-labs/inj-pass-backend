@@ -7,15 +7,27 @@ import { PointsTransaction } from '../points/entities/points-transaction.entity'
 import { AiUsageLog } from '../points/entities/ai-usage-log.entity';
 import { ChanceTransaction } from '../chance/entities/chance-transaction.entity';
 import { UserService } from '../user/user.service';
+import { Conversation } from '../ai/entities/conversation.entity';
+import { Message } from '../ai/entities/message.entity';
+import { AgentSessionEntity } from '../ai/entities/agent-session.entity';
+import { AgentToolLogEntity } from '../ai/entities/agent-tool-log.entity';
 
 type SearchUsersParams = {
   query?: string;
   page?: number;
   limit?: number;
+  hasChancePurchase?: string | boolean;
+  sortBy?: 'createdAt' | 'ninjaBalance' | 'aiWalletCount';
+  sortDir?: 'asc' | 'desc';
 };
 
 type SearchPasskeyCredentialsParams = {
   query?: string;
+  page?: number;
+  limit?: number;
+};
+
+type AdminListParams = {
   page?: number;
   limit?: number;
 };
@@ -50,6 +62,10 @@ type UserListRow = {
   walletName: string | null;
   createdAt: Date;
   updatedAt: Date;
+  aiWalletCount: number;
+  aiRoundCount: number;
+  chancePurchaseCount: number;
+  latestChancePurchaseAt: Date | null;
   aiUsage: {
     totalRequests: number;
     totalInputTokens: number;
@@ -57,6 +73,14 @@ type UserListRow = {
     totalCostNinja: number;
     lastUsedAt: Date | null;
   };
+};
+
+type AiWalletListRow = {
+  sandboxAddress: string;
+  sessionCount: number;
+  roundCount: number;
+  firstActiveAt: Date | null;
+  lastActiveAt: Date | null;
 };
 
 type PasskeyCredentialRow = {
@@ -83,6 +107,14 @@ export class AdminService {
     private readonly aiUsageLogRepository: Repository<AiUsageLog>,
     @InjectRepository(ChanceTransaction)
     private readonly chanceTransactionRepository: Repository<ChanceTransaction>,
+    @InjectRepository(Conversation)
+    private readonly conversationRepository: Repository<Conversation>,
+    @InjectRepository(Message)
+    private readonly messageRepository: Repository<Message>,
+    @InjectRepository(AgentSessionEntity)
+    private readonly agentSessionRepository: Repository<AgentSessionEntity>,
+    @InjectRepository(AgentToolLogEntity)
+    private readonly agentToolLogRepository: Repository<AgentToolLogEntity>,
     private readonly userService: UserService,
   ) {}
 
@@ -102,10 +134,23 @@ export class AdminService {
     return Math.min(next, 100);
   }
 
+  private toOptionalBoolean(value: unknown): boolean | undefined {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true') return true;
+      if (normalized === 'false') return false;
+    }
+    return undefined;
+  }
+
   async searchUsers(params: SearchUsersParams) {
     const page = this.clampPage(params.page);
     const limit = this.clampLimit(params.limit);
     const query = params.query?.trim();
+    const hasChancePurchase = this.toOptionalBoolean(params.hasChancePurchase);
+    const sortBy = params.sortBy ?? 'createdAt';
+    const sortDir = params.sortDir === 'asc' ? 'ASC' : 'DESC';
 
     const qb = this.userRepository
       .createQueryBuilder('user')
@@ -127,9 +172,10 @@ export class AdminService {
         'credential.walletAddress AS "walletAddress"',
         'credential.walletName AS "walletName"',
       ])
-      .orderBy('user.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+      .orderBy(
+        sortBy === 'ninjaBalance' ? 'user.ninjaBalance' : 'user.createdAt',
+        sortDir,
+      );
 
     if (query) {
       qb.where(
@@ -142,6 +188,22 @@ export class AdminService {
           OR "credential"."walletName" ILIKE :query
         `,
         { query: `%${query}%` },
+      );
+    }
+    if (hasChancePurchase === true) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM "chance_transactions" "chance"
+          WHERE "chance"."userId" = "user"."id"
+        )`,
+      );
+    }
+    if (hasChancePurchase === false) {
+      qb.andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM "chance_transactions" "chance"
+          WHERE "chance"."userId" = "user"."id"
+        )`,
       );
     }
 
@@ -166,16 +228,42 @@ export class AdminService {
         { query: `%${query}%` },
       );
     }
+    if (hasChancePurchase === true) {
+      countQb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM "chance_transactions" "chance"
+          WHERE "chance"."userId" = "user"."id"
+        )`,
+      );
+    }
+    if (hasChancePurchase === false) {
+      countQb.andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM "chance_transactions" "chance"
+          WHERE "chance"."userId" = "user"."id"
+        )`,
+      );
+    }
 
-    const [rawUsers, total] = await Promise.all([
-      qb.getRawMany(),
-      countQb.getCount(),
-    ]);
+    if (sortBy !== 'aiWalletCount') {
+      qb.skip((page - 1) * limit).take(limit);
+    }
+
+    const [rawUsers, total] = await Promise.all([qb.getRawMany(), countQb.getCount()]);
 
     const userIds = rawUsers
       .map((row) => Number(row.id))
       .filter((id) => Number.isFinite(id));
-    const aiUsageMap = await this.getAiUsageSummaryMap(userIds);
+    const credentialIds = rawUsers
+      .map((row) => String(row.credentialId ?? '').trim())
+      .filter(Boolean);
+    const [aiUsageMap, chanceSummaryMap, aiWalletCountMap, aiRoundCountMap] =
+      await Promise.all([
+        this.getAiUsageSummaryMap(userIds),
+        this.getChanceSummaryMap(userIds),
+        this.getAiWalletCountByCredentialMap(credentialIds),
+        this.getAiRoundCountByCredentialMap(credentialIds),
+      ]);
 
     const users: UserListRow[] = rawUsers.map((row) => {
       const id = Number(row.id);
@@ -191,6 +279,10 @@ export class AdminService {
         walletName: row.walletName,
         createdAt: new Date(row.createdAt),
         updatedAt: new Date(row.updatedAt),
+        aiWalletCount: aiWalletCountMap.get(row.credentialId) ?? 0,
+        aiRoundCount: aiRoundCountMap.get(row.credentialId) ?? 0,
+        chancePurchaseCount: chanceSummaryMap.get(id)?.count ?? 0,
+        latestChancePurchaseAt: chanceSummaryMap.get(id)?.latest ?? null,
         aiUsage: aiUsageMap.get(id) ?? {
           totalRequests: 0,
           totalInputTokens: 0,
@@ -200,6 +292,20 @@ export class AdminService {
         },
       };
     });
+
+    if (sortBy === 'aiWalletCount') {
+      const sorted = users.sort((a, b) => {
+        const delta = (a.aiWalletCount ?? 0) - (b.aiWalletCount ?? 0);
+        return sortDir === 'ASC' ? delta : -delta;
+      });
+      const start = (page - 1) * limit;
+      return {
+        users: sorted.slice(start, start + limit),
+        total,
+        page,
+        limit,
+      };
+    }
 
     return {
       users,
@@ -288,7 +394,7 @@ export class AdminService {
       return null;
     }
 
-    const [credential, transactions, aiLogs, aiUsage] = await Promise.all([
+    const [credential, transactions, aiLogs, aiUsage, chancePurchases, aiWallets] = await Promise.all([
       this.credentialRepository.findOne({
         where: { credentialId: user.credentialId },
       }),
@@ -303,6 +409,12 @@ export class AdminService {
         take: 20,
       }),
       this.getAiUsageSummaryMap([userId]),
+      this.chanceTransactionRepository.find({
+        where: { userId },
+        order: { createdAt: 'DESC' },
+        take: 10,
+      }),
+      this.getAiWalletAggregates(user.credentialId),
     ]);
 
     return {
@@ -323,6 +435,9 @@ export class AdminService {
         updatedAt: user.updatedAt,
         walletAddress: credential?.walletAddress ?? null,
         walletName: credential?.walletName ?? null,
+        passkeyCounter: credential
+          ? this.normalizeNumber(credential.counter)
+          : 0,
       },
       aiUsage: aiUsage.get(userId) ?? {
         totalRequests: 0,
@@ -347,6 +462,181 @@ export class AdminService {
         balanceAfter: this.normalizeNumber(tx.balanceAfter),
         metadata: tx.metadata,
         createdAt: tx.createdAt,
+      })),
+      chancePurchases: chancePurchases.map((row) => ({
+        id: row.id,
+        txHash: row.txHash,
+        productId: row.productId,
+        chanceAmount: row.chanceAmount,
+        status: row.status,
+        createdAt: row.createdAt,
+      })),
+      aiWalletSummary: {
+        walletCount: aiWallets.length,
+        totalRounds: aiWallets.reduce((sum, item) => sum + item.roundCount, 0),
+      },
+    };
+  }
+
+  async getUserAiWallets(userId: number, params: AdminListParams) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      return null;
+    }
+
+    const page = this.clampPage(params.page);
+    const limit = this.clampLimit(params.limit);
+    const wallets = await this.getAiWalletAggregates(user.credentialId);
+    const sorted = wallets.sort(
+      (left, right) =>
+        (right.lastActiveAt?.getTime() ?? 0) -
+        (left.lastActiveAt?.getTime() ?? 0),
+    );
+    const total = sorted.length;
+    const start = (page - 1) * limit;
+    const rows = sorted.slice(start, start + limit);
+
+    return {
+      userId,
+      walletAddress: user.walletAddress,
+      total,
+      page,
+      limit,
+      wallets: rows,
+    };
+  }
+
+  async getUserAiWalletDetail(
+    userId: number,
+    walletAddress: string,
+    params: AdminListParams,
+  ) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      return null;
+    }
+
+    const target = walletAddress.trim().toLowerCase();
+    const wallets = await this.getAiWalletAggregates(user.credentialId);
+    const wallet = wallets.find(
+      (row) => row.sandboxAddress.toLowerCase() === target,
+    );
+    if (!wallet) {
+      return null;
+    }
+
+    const page = this.clampPage(params.page);
+    const limit = this.clampLimit(params.limit);
+
+    const conversationQb = this.agentSessionRepository
+      .createQueryBuilder('session')
+      .leftJoin(
+        Conversation,
+        'conversation',
+        'conversation.id = session.conversationId',
+      )
+      .leftJoin(
+        Message,
+        'message',
+        'message.conversationId = conversation.id AND message.role = :userRole',
+        { userRole: 'user' },
+      )
+      .where('session.credentialId = :credentialId', {
+        credentialId: user.credentialId,
+      })
+      .andWhere('LOWER(session.sandboxAddress) = :address', { address: target })
+      .groupBy('conversation.id')
+      .addGroupBy('conversation.title')
+      .addGroupBy('conversation.model')
+      .addGroupBy('conversation.createdAt')
+      .addGroupBy('conversation.updatedAt')
+      .select([
+        'conversation.id AS "conversationId"',
+        'conversation.title AS "title"',
+        'conversation.model AS "model"',
+        'conversation.createdAt AS "createdAt"',
+        'conversation.updatedAt AS "updatedAt"',
+        'COUNT(message.id)::int AS "roundCount"',
+      ])
+      .orderBy('conversation.updatedAt', 'DESC');
+
+    const [conversationRows, toolRows] = await Promise.all([
+      conversationQb.getRawMany(),
+      this.agentToolLogRepository
+        .createQueryBuilder('tool')
+        .select(['tool.toolId AS "toolId"', 'COUNT(*)::int AS "count"'])
+        .where('tool.credentialId = :credentialId', {
+          credentialId: user.credentialId,
+        })
+        .andWhere('LOWER(tool.sandboxAddress) = :address', { address: target })
+        .groupBy('tool.toolId')
+        .orderBy('"count"', 'DESC')
+        .getRawMany(),
+    ]);
+
+    const total = conversationRows.length;
+    const start = (page - 1) * limit;
+    const conversationItems = conversationRows.slice(start, start + limit);
+
+    return {
+      userId,
+      wallet: {
+        sandboxAddress: wallet.sandboxAddress,
+        sessionCount: wallet.sessionCount,
+        roundCount: wallet.roundCount,
+        firstActiveAt: wallet.firstActiveAt,
+        lastActiveAt: wallet.lastActiveAt,
+      },
+      conversations: {
+        total,
+        page,
+        limit,
+        items: conversationItems.map((row) => ({
+          conversationId: row.conversationId,
+          title: row.title,
+          model: row.model,
+          roundCount: this.normalizeNumber(row.roundCount),
+          createdAt: row.createdAt ? new Date(row.createdAt) : null,
+          updatedAt: row.updatedAt ? new Date(row.updatedAt) : null,
+        })),
+      },
+      toolSummary: toolRows.map((row) => ({
+        toolId: row.toolId,
+        count: this.normalizeNumber(row.count),
+      })),
+    };
+  }
+
+  async getUserChancePurchases(userId: number, params: AdminListParams) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      return null;
+    }
+
+    const page = this.clampPage(params.page);
+    const limit = this.clampLimit(params.limit);
+    const [rows, total] = await this.chanceTransactionRepository.findAndCount({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      userId,
+      total,
+      page,
+      limit,
+      purchases: rows.map((row) => ({
+        id: row.id,
+        txHash: row.txHash,
+        chainId: row.chainId,
+        productId: row.productId,
+        chanceAmount: row.chanceAmount,
+        balanceAfter: row.balanceAfter,
+        status: row.status,
+        metadata: row.metadata,
+        createdAt: row.createdAt,
       })),
     };
   }
@@ -549,5 +839,123 @@ export class AdminService {
     }
 
     return empty;
+  }
+
+  private async getChanceSummaryMap(userIds: number[]) {
+    const safeUserIds = [...new Set(userIds)].filter((id) =>
+      Number.isFinite(id),
+    );
+    const map = new Map<number, { count: number; latest: Date | null }>();
+    if (safeUserIds.length === 0) {
+      return map;
+    }
+
+    const rows = await this.chanceTransactionRepository
+      .createQueryBuilder('chance')
+      .select('chance.userId', 'userId')
+      .addSelect('COUNT(*)::int', 'count')
+      .addSelect('MAX(chance.createdAt)', 'latest')
+      .where('chance.userId IN (:...userIds)', { userIds: safeUserIds })
+      .groupBy('chance.userId')
+      .getRawMany();
+
+    for (const row of rows) {
+      map.set(this.normalizeNumber(row.userId), {
+        count: this.normalizeNumber(row.count),
+        latest: row.latest ? new Date(row.latest) : null,
+      });
+    }
+
+    return map;
+  }
+
+  private async getAiWalletCountByCredentialMap(credentialIds: string[]) {
+    const safeCredentialIds = [...new Set(credentialIds)].filter(Boolean);
+    const map = new Map<string, number>();
+    if (safeCredentialIds.length === 0) {
+      return map;
+    }
+
+    const rows = await this.agentSessionRepository
+      .createQueryBuilder('session')
+      .select('session.credentialId', 'credentialId')
+      .addSelect('COUNT(DISTINCT session.sandboxAddress)::int', 'walletCount')
+      .where('session.credentialId IN (:...credentialIds)', {
+        credentialIds: safeCredentialIds,
+      })
+      .andWhere('session.sandboxAddress IS NOT NULL')
+      .groupBy('session.credentialId')
+      .getRawMany();
+
+    for (const row of rows) {
+      map.set(String(row.credentialId), this.normalizeNumber(row.walletCount));
+    }
+
+    return map;
+  }
+
+  private async getAiRoundCountByCredentialMap(credentialIds: string[]) {
+    const safeCredentialIds = [...new Set(credentialIds)].filter(Boolean);
+    const map = new Map<string, number>();
+    if (safeCredentialIds.length === 0) {
+      return map;
+    }
+
+    const rows = await this.conversationRepository
+      .createQueryBuilder('conversation')
+      .leftJoin(
+        Message,
+        'message',
+        'message.conversationId = conversation.id AND message.role = :userRole',
+        { userRole: 'user' },
+      )
+      .select('conversation.credentialId', 'credentialId')
+      .addSelect('COUNT(message.id)::int', 'roundCount')
+      .where('conversation.credentialId IN (:...credentialIds)', {
+        credentialIds: safeCredentialIds,
+      })
+      .groupBy('conversation.credentialId')
+      .getRawMany();
+
+    for (const row of rows) {
+      map.set(String(row.credentialId), this.normalizeNumber(row.roundCount));
+    }
+
+    return map;
+  }
+
+  private async getAiWalletAggregates(
+    credentialId: string,
+  ): Promise<AiWalletListRow[]> {
+    const rows = await this.agentSessionRepository
+      .createQueryBuilder('session')
+      .leftJoin(
+        Conversation,
+        'conversation',
+        'conversation.id = session.conversationId',
+      )
+      .leftJoin(
+        Message,
+        'message',
+        'message.conversationId = conversation.id AND message.role = :userRole',
+        { userRole: 'user' },
+      )
+      .select('session.sandboxAddress', 'sandboxAddress')
+      .addSelect('COUNT(DISTINCT session.conversationId)::int', 'sessionCount')
+      .addSelect('COUNT(message.id)::int', 'roundCount')
+      .addSelect('MIN(session.createdAt)', 'firstActiveAt')
+      .addSelect('MAX(session.updatedAt)', 'lastActiveAt')
+      .where('session.credentialId = :credentialId', { credentialId })
+      .andWhere('session.sandboxAddress IS NOT NULL')
+      .groupBy('session.sandboxAddress')
+      .getRawMany();
+
+    return rows.map((row) => ({
+      sandboxAddress: String(row.sandboxAddress),
+      sessionCount: this.normalizeNumber(row.sessionCount),
+      roundCount: this.normalizeNumber(row.roundCount),
+      firstActiveAt: row.firstActiveAt ? new Date(row.firstActiveAt) : null,
+      lastActiveAt: row.lastActiveAt ? new Date(row.lastActiveAt) : null,
+    }));
   }
 }

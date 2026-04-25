@@ -13,7 +13,7 @@ function getAllowedOrigins() {
       .map((origin) => origin.trim())
       .filter(Boolean) ?? [];
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
     return Array.from(
       new Set([
         ...configuredOrigins,
@@ -30,6 +30,38 @@ function getAllowedOrigins() {
   return configuredOrigins;
 }
 
+function isAllowedLocalOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    const host = parsed.hostname;
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '0.0.0.0' ||
+      host === '::1' ||
+      host === 'host.docker.internal'
+    ) {
+      return true;
+    }
+
+    // Allow private-network IPv4 hosts during local development.
+    if (/^10\./.test(host) || /^192\.168\./.test(host)) {
+      return true;
+    }
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export const createNextServer = async (expressInstance: any) => {
   const app = await NestFactory.create(
     AppModule,
@@ -37,14 +69,20 @@ export const createNextServer = async (expressInstance: any) => {
   );
 
   const allowedOrigins = getAllowedOrigins();
+  const isLocalRuntime =
+    process.env.NODE_ENV !== 'production' || !process.env.VERCEL;
 
   app.enableCors({
     origin: (origin, callback) => {
       // Allow requests without origin (e.g., mobile apps, Postman) or from allowed origins
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        (isLocalRuntime && isAllowedLocalOrigin(origin))
+      ) {
         callback(null, true);
       } else {
-        callback(new Error('Not allowed by CORS'));
+        callback(new Error(`Not allowed by CORS: ${origin}`));
       }
     },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',

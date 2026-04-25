@@ -25,20 +25,15 @@ export const POINTS_CONFIG = {
   AI: {
     // Model pricing per 1K tokens (in USD)
     MODELS: {
-      'claude-sonnet-4-6': { input: 0.003, output: 0.015 },
-      'claude-sonnet-4-5': { input: 0.003, output: 0.015 },
-      // Add more models here as needed
-      'gpt-5.1': { input: 0.01, output: 0.03 },
-      'deepseek-v3.2': { input: 0.00027, output: 0.0011 },
-      'gpt-4o': { input: 0.0025, output: 0.01 },
-      'gpt-4o-mini': { input: 0.00015, output: 0.0006 },
+      // Source prices are per 1M tokens from the provider UI.
+      // We store them here per 1K tokens because downstream billing uses /1000.
+      'gpt-5.1': { input: 0.00075, output: 0.006 },
+      'gpt-4o-mini': { input: 0.00009, output: 0.00036 },
     },
     // If frontend sends an unknown model, bill using this default model.
-    DEFAULT_MODEL: 'gpt-4o-mini',
+    DEFAULT_MODEL: 'gpt-5.1',
     // Map frontend display/alias model names to billable models.
-    MODEL_ALIASES: {
-      'gemini-3.1-pro-preview': 'claude-sonnet-4-6',
-    },
+    MODEL_ALIASES: {},
     // NINJA tokens per 1 USD (adjustable for economic balancing)
     // e.g., 100 means 1 USD = 100 NINJA
     NINJA_PER_DOLLAR: 100,

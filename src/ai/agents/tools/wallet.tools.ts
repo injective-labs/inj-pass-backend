@@ -1,10 +1,12 @@
-/**
- * Wallet Tools
- * Implementation for get_wallet_info, get_balance, get_tx_history, send_token
- */
-
-import { ConfigService } from '@nestjs/config';
 import { AgentContext } from '../agents.config';
+import { Contract, Wallet, formatEther, formatUnits, getAddress, parseEther } from 'ethers';
+import {
+  EVM_CONTRACTS,
+  EVM_NETWORK,
+  getBlockscoutAddressTxApiUrl,
+  getBlockscoutTxUrl,
+  getEvmProvider,
+} from '../../../config/evm-network.config';
 
 interface WalletInfoResult {
   address: string;
@@ -22,7 +24,7 @@ interface BalanceResult {
 interface TxHistoryResult {
   hash: string;
   from: string;
-  to: string;
+  to: string | null;
   value: string;
   token: string;
   timestamp: number;
@@ -35,100 +37,98 @@ interface SendTokenResult {
   explorerUrl: string;
 }
 
-// Token addresses on Injective EVM
 const TOKENS = {
-  INJ: '0xe79d3fbb5f93b4e4c3007b2d5d0e2e8f3c5f4c0', // Native
-  USDT: '0x4Ee81167c48Bc996eb1aE131203321C3b5d808bF',
-  USDC: '0xaE721B5Fb54EB0B536a3445A46F7a19A25B24fEe',
+  USDT: {
+    address: EVM_CONTRACTS.usdtAddress,
+    decimals: 6,
+  },
+  USDC: {
+    address: EVM_CONTRACTS.usdcAddress,
+    decimals: 6,
+  },
 };
 
-// RPC URL
-const getRpcUrl = () => {
-  return (
-    process.env.INJECTIVE_EVM_RPC || 'https://injective-1.public.blastapi.io'
-  );
-};
+const ERC20_ABI = [
+  'function balanceOf(address owner) view returns (uint256)',
+];
+
+function getActiveAddress(context: AgentContext): string {
+  return context.isSandbox
+    ? context.sandboxAddress || context.walletAddress
+    : context.walletAddress;
+}
 
 export async function getWalletInfo(
   context: AgentContext,
 ): Promise<WalletInfoResult> {
-  const activeAddr = context.isSandbox
-    ? context.sandboxAddress
-    : context.walletAddress;
-
-  if (!activeAddr) {
-    return {
-      address: '0x0000000000000000000000000000000000000000',
-      network: 'Injective EVM Mainnet',
-      chainId: 1776,
-      note: 'No wallet address available',
-    };
-  }
+  const activeAddr = getActiveAddress(context);
 
   return {
     address: activeAddr,
-    network: 'Injective EVM Mainnet',
-    chainId: 1776,
-    ...(context.isSandbox
-      ? { note: "SANDBOX wallet — not the user's real wallet" }
-      : {}),
+    network: EVM_NETWORK.networkName,
+    chainId: EVM_NETWORK.chainId,
+    ...(context.isSandbox ? { note: "SANDBOX wallet — not the user's real wallet" } : {}),
   };
 }
 
 export async function getBalance(
   context: AgentContext,
 ): Promise<BalanceResult> {
-  const activeAddr = context.isSandbox
-    ? context.sandboxAddress
-    : context.walletAddress;
+  const activeAddr = getAddress(getActiveAddress(context));
+  const provider = getEvmProvider();
 
-  try {
-    const response = await fetch(getRpcUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_getBalance',
-        params: [activeAddr, 'latest'],
-      }),
-    });
+  const [inj, usdt, usdc] = await Promise.all([
+    provider.getBalance(activeAddr),
+    new Contract(TOKENS.USDT.address, ERC20_ABI, provider).balanceOf(activeAddr).catch(() => 0n),
+    new Contract(TOKENS.USDC.address, ERC20_ABI, provider).balanceOf(activeAddr).catch(() => 0n),
+  ]);
 
-    const result = await response.json();
-    const injBalance = result.result ? parseInt(result.result, 16) / 1e18 : 0;
-
-    // For ERC-20 balances, we'd need to call contract read methods
-    // Simplified for now - in production, use viem/batch calls
-
-    return {
-      INJ: injBalance.toFixed(6),
-      USDT: '0', // TODO: Implement ERC-20 balance check
-      USDC: '0', // TODO: Implement ERC-20 balance check
-    };
-  } catch (error) {
-    console.error('[wallet.getBalance] Error:', error);
-    return { INJ: '0', USDT: '0', USDC: '0' };
-  }
+  return {
+    INJ: Number(formatEther(inj)).toFixed(6),
+    USDT: Number(formatUnits(usdt, TOKENS.USDT.decimals)).toFixed(6),
+    USDC: Number(formatUnits(usdc, TOKENS.USDC.decimals)).toFixed(6),
+  };
 }
 
 export async function getTxHistory(
   context: AgentContext,
   limit: number = 10,
 ): Promise<TxHistoryResult[]> {
-  const activeAddr = context.isSandbox
-    ? context.sandboxAddress
-    : context.walletAddress;
+  const activeAddr = getAddress(getActiveAddress(context));
+  const url = getBlockscoutAddressTxApiUrl(activeAddr);
 
-  // In production, query Blockscout API or indexer
-  // Simplified for now
-  console.log(
-    '[wallet.getTxHistory] Getting tx history for:',
-    activeAddr,
-    'limit:',
-    limit,
-  );
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+    });
 
-  return []; // TODO: Implement
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as {
+      items?: Array<{
+        hash: string;
+        from?: { hash?: string };
+        to?: { hash?: string } | null;
+        value?: string;
+        timestamp?: string;
+        status?: 'ok' | 'error';
+      }>;
+    };
+
+    return (payload.items ?? []).slice(0, limit).map((item) => ({
+      hash: item.hash,
+      from: item.from?.hash ?? '',
+      to: item.to?.hash ?? null,
+      value: item.value ?? '0',
+      token: 'INJ',
+      timestamp: item.timestamp ? Math.floor(new Date(item.timestamp).getTime() / 1000) : 0,
+      status: item.status === 'error' ? 'failed' : 'success',
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function sendToken(
@@ -136,29 +136,21 @@ export async function sendToken(
   toAddress: string,
   amount: string,
 ): Promise<SendTokenResult> {
-  const pk = context.isSandbox ? context.privateKey : context.privateKey; // Use appropriate key
-  const fromAddress = context.isSandbox
-    ? context.sandboxAddress
-    : context.walletAddress;
+  if (!context.privateKey || !context.isSandbox) {
+    throw new Error('Destructive wallet actions require a sandbox wallet managed by the backend.');
+  }
 
-  console.log(
-    '[wallet.sendToken] Sending',
-    amount,
-    'INJ from',
-    fromAddress,
-    'to',
-    toAddress,
-  );
-
-  // TODO: Implement actual transaction signing and sending
-  // This requires:
-  // 1. Sign transaction with private key
-  // 2. Send via RPC
-  // 3. Return txHash
+  const provider = getEvmProvider();
+  const wallet = new Wallet(context.privateKey, provider);
+  const tx = await wallet.sendTransaction({
+    to: getAddress(toAddress),
+    value: parseEther(amount),
+  });
+  await tx.wait();
 
   return {
     success: true,
-    txHash: '0x...', // TODO: Implement
-    explorerUrl: `https://blockscout.injective.network/tx/0x...`,
+    txHash: tx.hash,
+    explorerUrl: getBlockscoutTxUrl(tx.hash),
   };
 }

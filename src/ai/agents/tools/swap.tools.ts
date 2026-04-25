@@ -1,9 +1,16 @@
-/**
- * Swap Tools
- * Implementation for get_swap_quote and execute_swap
- */
-
 import { AgentContext } from '../agents.config';
+import {
+  Contract,
+  Wallet,
+  formatUnits,
+  getAddress,
+  parseUnits,
+} from 'ethers';
+import {
+  EVM_CONTRACTS,
+  getBlockscoutTxUrl,
+  getEvmProvider,
+} from '../../../config/evm-network.config';
 
 interface SwapQuoteResult {
   fromToken: string;
@@ -21,8 +28,82 @@ interface ExecuteSwapResult {
   explorerUrl: string;
 }
 
-// Router contract address on Injective
-const ROUTER_ADDRESS = '0x12f31D8B2aACe7D77442E4D7C44F55f4aB9E3A2c';
+const TOKENS = {
+  INJ: {
+    address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+    decimals: 18,
+    isNative: true,
+  },
+  WINJ: {
+    address: EVM_CONTRACTS.wInjAddress,
+    decimals: 18,
+    isNative: false,
+  },
+  USDT: {
+    address: EVM_CONTRACTS.usdtAddress,
+    decimals: 6,
+    isNative: false,
+  },
+  USDC: {
+    address: EVM_CONTRACTS.usdcAddress,
+    decimals: 6,
+    isNative: false,
+  },
+} as const;
+
+const ROUTER_ADDRESS = EVM_CONTRACTS.routerAddress;
+const ROUTER_ABI = [
+  'function getAmountsOut(uint256 amountIn, tuple(address from,address to,bool stable)[] routes) view returns (uint256[] amounts)',
+  'function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, tuple(address from,address to,bool stable)[] routes, address to, uint256 deadline) returns (uint256[] amounts)',
+  'function swapExactETHForTokens(uint256 amountOutMin, tuple(address from,address to,bool stable)[] routes, address to, uint256 deadline) payable returns (uint256[] amounts)',
+  'function swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, tuple(address from,address to,bool stable)[] routes, address to, uint256 deadline) returns (uint256[] amounts)',
+];
+const ERC20_ABI = [
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+];
+
+type SupportedToken = keyof typeof TOKENS;
+
+function getToken(symbol: string) {
+  const token = TOKENS[symbol.toUpperCase() as SupportedToken];
+  if (!token) {
+    throw new Error(`Unsupported token: ${symbol}`);
+  }
+  return token;
+}
+
+function isNative(symbol: string): boolean {
+  return getToken(symbol).isNative;
+}
+
+function getSwapRoutes(fromToken: string, toToken: string) {
+  const from = isNative(fromToken) ? TOKENS.WINJ.address : getToken(fromToken).address;
+  const to = isNative(toToken) ? TOKENS.WINJ.address : getToken(toToken).address;
+  const stable = ['USDT:USDC', 'USDC:USDT'].includes(`${fromToken.toUpperCase()}:${toToken.toUpperCase()}`);
+  return [{ from: getAddress(from), to: getAddress(to), stable }];
+}
+
+async function checkAllowance(
+  provider: ReturnType<typeof getEvmProvider>,
+  tokenAddress: string,
+  ownerAddress: string,
+  spenderAddress: string,
+): Promise<bigint> {
+  const token = new Contract(tokenAddress, ERC20_ABI, provider);
+  return (await token.allowance(ownerAddress, spenderAddress)) as bigint;
+}
+
+async function approveToken(
+  wallet: Wallet,
+  tokenAddress: string,
+  spenderAddress: string,
+  amount: bigint,
+): Promise<void> {
+  const token = new Contract(tokenAddress, ERC20_ABI, wallet);
+  const tx = await token.approve(spenderAddress, amount);
+  await tx.wait();
+}
 
 export async function getSwapQuote(
   context: AgentContext,
@@ -31,30 +112,24 @@ export async function getSwapQuote(
   amount: string,
   slippage: number = 0.5,
 ): Promise<SwapQuoteResult> {
-  console.log('[swap.getSwapQuote]', { fromToken, toToken, amount, slippage });
-
-  // TODO: Implement actual quote fetching from DEX
-  // This would call the router contract's getAmountsOut
-
-  // Placeholder implementation
-  const amountIn = amount;
-  const priceImpact = '0.1';
-  const route = [fromToken, toToken];
-
-  // Simulate output (in production, get from contract)
-  const expectedOutput = (parseFloat(amount) * 0.95).toFixed(6);
-  const minOutput = (parseFloat(expectedOutput) * (1 - slippage / 100)).toFixed(
-    6,
-  );
+  const provider = getEvmProvider();
+  const router = new Contract(ROUTER_ADDRESS, ROUTER_ABI, provider);
+  const fromInfo = getToken(fromToken);
+  const toInfo = getToken(toToken);
+  const amountIn = parseUnits(amount, fromInfo.decimals);
+  const routes = getSwapRoutes(fromToken, toToken);
+  const amounts = (await router.getAmountsOut(amountIn, routes)) as bigint[];
+  const expectedOutput = amounts[amounts.length - 1];
+  const minOutput = expectedOutput - (expectedOutput * BigInt(Math.round(slippage * 100))) / 10000n;
 
   return {
     fromToken,
     toToken,
-    amountIn,
-    expectedOutput,
-    minOutput,
-    priceImpact,
-    route,
+    amountIn: amount,
+    expectedOutput: formatUnits(expectedOutput, toInfo.decimals),
+    minOutput: formatUnits(minOutput, toInfo.decimals),
+    priceImpact: '0.1',
+    route: routes.map((route) => `${fromToken.toUpperCase()} → ${toToken.toUpperCase()} (${route.stable ? 'stable' : 'volatile'})`),
   };
 }
 
@@ -66,29 +141,66 @@ export async function executeSwap(
   slippage: number = 0.5,
   expectedOutput?: string,
 ): Promise<ExecuteSwapResult> {
-  const fromAddress = context.isSandbox
-    ? context.sandboxAddress
-    : context.walletAddress;
-  const pk = context.isSandbox ? context.privateKey : context.privateKey;
+  if (!context.privateKey || !context.isSandbox || !context.sandboxAddress) {
+    throw new Error('Swap execution requires a backend-managed sandbox wallet.');
+  }
 
-  console.log('[swap.executeSwap]', {
-    fromToken,
-    toToken,
-    amount,
-    fromAddress,
-  });
+  const provider = getEvmProvider();
+  const wallet = new Wallet(context.privateKey, provider);
+  const router = new Contract(ROUTER_ADDRESS, ROUTER_ABI, wallet);
+  const fromInfo = getToken(fromToken);
+  const toInfo = getToken(toToken);
+  const amountIn = parseUnits(amount, fromInfo.decimals);
+  const quote = await getSwapQuote(context, fromToken, toToken, amount, slippage);
+  const minOutput = parseUnits(expectedOutput || quote.minOutput, toInfo.decimals);
+  const routes = getSwapRoutes(fromToken, toToken);
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
 
-  // TODO: Implement actual swap execution
-  // This requires:
-  // 1. Get quote from router
-  // 2. Build transaction data
-  // 3. Sign with private key
-  // 4. Send transaction
-  // 5. Return txHash
+  let txHash = '';
+
+  if (isNative(fromToken)) {
+    const tx = await router.swapExactETHForTokens(
+      minOutput,
+      routes,
+      getAddress(context.sandboxAddress),
+      deadline,
+      { value: amountIn },
+    );
+    await tx.wait();
+    txHash = tx.hash;
+  } else if (isNative(toToken)) {
+    const allowance = await checkAllowance(provider, fromInfo.address, context.sandboxAddress, ROUTER_ADDRESS);
+    if (allowance < amountIn) {
+      await approveToken(wallet, fromInfo.address, ROUTER_ADDRESS, amountIn * 2n);
+    }
+    const tx = await router.swapExactTokensForETH(
+      amountIn,
+      minOutput,
+      routes,
+      getAddress(context.sandboxAddress),
+      deadline,
+    );
+    await tx.wait();
+    txHash = tx.hash;
+  } else {
+    const allowance = await checkAllowance(provider, fromInfo.address, context.sandboxAddress, ROUTER_ADDRESS);
+    if (allowance < amountIn) {
+      await approveToken(wallet, fromInfo.address, ROUTER_ADDRESS, amountIn * 2n);
+    }
+    const tx = await router.swapExactTokensForTokens(
+      amountIn,
+      minOutput,
+      routes,
+      getAddress(context.sandboxAddress),
+      deadline,
+    );
+    await tx.wait();
+    txHash = tx.hash;
+  }
 
   return {
     success: true,
-    txHash: '0x...', // TODO: Implement
-    explorerUrl: `https://blockscout.injective.network/tx/0x...`,
+    txHash,
+    explorerUrl: getBlockscoutTxUrl(txHash),
   };
 }

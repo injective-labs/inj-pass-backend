@@ -9,6 +9,12 @@ import * as walletTools from './tools/wallet.tools';
 import * as swapTools from './tools/swap.tools';
 import * as gameTools from './tools/game.tools';
 
+export type AgentToolPolicy = {
+  allowedToolNames?: string[];
+  aiDriven?: boolean;
+  dappName?: string;
+};
+
 @Injectable()
 export class AgentsService {
   private readonly logger = new Logger(AgentsService.name);
@@ -20,8 +26,26 @@ export class AgentsService {
     name: string,
     input: Record<string, unknown>,
     context: AgentContext,
+    policy?: AgentToolPolicy,
   ): Promise<string> {
-    this.logger.log(`[executeTool] ${name}`, input);
+    const safeInput = input ?? {};
+    const formattedInput =
+      Object.keys(safeInput).length === 0
+        ? '[no-args]'
+        : JSON.stringify(safeInput);
+
+    this.logger.log(
+      `[executeTool] ${name} input=${formattedInput}`,
+    );
+
+    if (!this.isToolAllowed(name, policy)) {
+      this.logger.warn(
+        `[executeTool] Blocked by policy: ${name} (dapp=${policy?.dappName ?? 'unknown'})`,
+      );
+      return JSON.stringify({
+        error: `Tool not allowed by active dapp policy: ${name}`,
+      });
+    }
 
     try {
       let result: unknown;
@@ -100,5 +124,25 @@ export class AgentsService {
    */
   getTools() {
     return AGENT_TOOLS;
+  }
+
+  getToolsByPolicy(policy?: AgentToolPolicy) {
+    if (!policy) return AGENT_TOOLS;
+    return AGENT_TOOLS.filter((tool) => this.isToolAllowed(tool.name, policy));
+  }
+
+  private isToolAllowed(name: string, policy?: AgentToolPolicy): boolean {
+    if (!policy) return true;
+
+    if (policy.aiDriven === false) {
+      return false;
+    }
+
+    const allowedToolNames = policy.allowedToolNames;
+    if (!Array.isArray(allowedToolNames) || allowedToolNames.length === 0) {
+      return false;
+    }
+
+    return allowedToolNames.includes(name);
   }
 }
