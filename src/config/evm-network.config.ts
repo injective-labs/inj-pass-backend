@@ -13,13 +13,35 @@ function parseChainId(raw: string | undefined): number {
   return Number.isFinite(value) && value > 0 ? value : 1776;
 }
 
+function readChainId() {
+  return parseChainId(readEnv('INJECTIVE_EVM_CHAIN_ID', 'WORKER_STATIC_CHAIN_ID'));
+}
+
+function isTestnet() {
+  return readChainId() === 1439;
+}
+
 // Keep this aligned with old frontend mainnet constants by default.
 export const EVM_NETWORK = {
-  rpcUrl: readEnv('INJECTIVE_EVM_RPC', 'WORKER_RPC_URL') || 'https://sentry.evm-rpc.injective.network/',
-  chainId: parseChainId(readEnv('INJECTIVE_EVM_CHAIN_ID', 'WORKER_STATIC_CHAIN_ID')),
-  networkName: 'Injective EVM Mainnet',
-  blockscoutBaseUrl: 'https://blockscout.injective.network',
-  blockscoutApiBaseUrl: 'https://blockscout.injective.network/api/v2',
+  get rpcUrl() {
+    return readEnv('INJECTIVE_EVM_RPC', 'WORKER_RPC_URL') || 'https://sentry.evm-rpc.injective.network/';
+  },
+  get chainId() {
+    return readChainId();
+  },
+  get networkName() {
+    return isTestnet() ? 'Injective EVM Testnet' : 'Injective EVM Mainnet';
+  },
+  get blockscoutBaseUrl() {
+    return isTestnet()
+      ? 'https://testnet.blockscout.injective.network'
+      : 'https://blockscout.injective.network';
+  },
+  get blockscoutApiBaseUrl() {
+    return isTestnet()
+      ? 'https://testnet.blockscout-api.injective.network/api/v2'
+      : 'https://blockscout.injective.network/api/v2';
+  },
 } as const;
 
 export const EVM_CONTRACTS = {

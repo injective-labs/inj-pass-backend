@@ -4,6 +4,33 @@ import path from 'node:path';
 import { JsonRpcProvider, Contract, EventLog } from 'ethers';
 import { chanceManagerAbi } from './abi/chance-manager.abi';
 
+function loadEnvFile(filePath: string) {
+  if (!fs.existsSync(filePath)) return;
+
+  const lines = fs.readFileSync(filePath, 'utf-8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const separatorIndex = trimmed.indexOf('=');
+    if (separatorIndex <= 0) continue;
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    let value = trimmed.slice(separatorIndex + 1).trim();
+
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] ??= value;
+  }
+}
+
+loadEnvFile(path.resolve(process.cwd(), '.env'));
+
 const RPC_URL = process.env.WORKER_RPC_URL ?? '';
 const CONTRACT_ADDRESS = process.env.CHANCE_CONTRACT_ADDRESS ?? '';
 const BACKEND_API_URL = process.env.WORKER_BACKEND_API_URL ?? '';
@@ -258,6 +285,21 @@ async function bootstrap() {
         ? START_BLOCK
         : Math.max(0, target - AUTO_CATCH_UP_WINDOW);
     state = { lastProcessedBlock: fallbackStart };
+    saveState(state);
+  } else if (state.lastProcessedBlock > target) {
+    const catchUpStart =
+      START_BLOCK > 0
+        ? Math.min(START_BLOCK, target)
+        : Math.max(0, target - AUTO_CATCH_UP_WINDOW);
+    console.warn(
+      '[chance-worker] cursor is ahead of current chain height, resetting',
+      {
+        previous: state.lastProcessedBlock,
+        target,
+        resetTo: catchUpStart,
+      },
+    );
+    state = { lastProcessedBlock: catchUpStart };
     saveState(state);
   } else if (AUTO_CATCH_UP && START_BLOCK <= 0) {
     const lag = Math.max(0, target - state.lastProcessedBlock);

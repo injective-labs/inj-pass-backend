@@ -12,6 +12,7 @@ import { Conversation } from '../ai/entities/conversation.entity';
 import { Message } from '../ai/entities/message.entity';
 import { AgentSessionEntity } from '../ai/entities/agent-session.entity';
 import { AgentToolLogEntity } from '../ai/entities/agent-tool-log.entity';
+import { MintCreditLedger } from '../catnft/entities/mint-credit-ledger.entity';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { AgentToolLogEntity } from '../ai/entities/agent-tool-log.entity';
       Message,
       AgentSessionEntity,
       AgentToolLogEntity,
+      MintCreditLedger,
     ]),
   ],
   controllers: [AdminController],
