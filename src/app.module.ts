@@ -12,6 +12,7 @@ import { ReferralModule } from './referral/referral.module';
 import { AIModule } from './ai/ai.module';
 import { AdminModule } from './admin/admin.module';
 import { DappsModule } from './dapps/dapps.module';
+import { CatnftModule } from './catnft/catnft.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { DappsModule } from './dapps/dapps.module';
     AIModule,
     AdminModule,
     DappsModule,
+    CatnftModule,
   ],
   controllers: [AppController],
   providers: [AppService],

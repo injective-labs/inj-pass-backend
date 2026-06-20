@@ -43,6 +43,12 @@ export class User {
   @Column({ name: 'chanceCooldownEndsAt', type: 'bigint', default: 0 })
   chanceCooldownEndsAt: number;
 
+  @Column({ name: 'mintCreditsRemaining', type: 'integer', default: 0 })
+  mintCreditsRemaining: number;
+
+  @Column({ name: 'catMintNonce', type: 'bigint', default: 0 })
+  catMintNonce: number;
+
   @Column({
     name: 'walletAddress',
     type: 'varchar',

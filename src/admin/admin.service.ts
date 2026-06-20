@@ -11,6 +11,7 @@ import { Conversation } from '../ai/entities/conversation.entity';
 import { Message } from '../ai/entities/message.entity';
 import { AgentSessionEntity } from '../ai/entities/agent-session.entity';
 import { AgentToolLogEntity } from '../ai/entities/agent-tool-log.entity';
+import { MintCreditLedger } from '../catnft/entities/mint-credit-ledger.entity';
 
 type SearchUsersParams = {
   query?: string;
@@ -117,6 +118,21 @@ export class AdminService {
     private readonly agentToolLogRepository: Repository<AgentToolLogEntity>,
     private readonly userService: UserService,
   ) {}
+
+  private getMintCreditsForPurchase(params: {
+    productId: string;
+    chanceAmount: number;
+  }) {
+    const productId = params.productId.toLowerCase();
+    if (productId.includes('go')) return 1;
+    if (productId.includes('pro')) return 2;
+    if (productId.includes('max')) return 3;
+
+    if (params.chanceAmount >= 30) return 3;
+    if (params.chanceAmount >= 12) return 2;
+    if (params.chanceAmount >= 3) return 1;
+    return 0;
+  }
 
   private normalizeNumber(value: unknown, fallback = 0): number {
     const next = Number(value);
@@ -738,6 +754,15 @@ export class AdminService {
         0,
       );
       const nextChance = Math.max(0, currentChance + normalizedChanceAmount);
+      const mintCreditDelta = this.getMintCreditsForPurchase({
+        productId: params.productId,
+        chanceAmount: normalizedChanceAmount,
+      });
+      const currentMintCredits = this.normalizeNumber(
+        (lockedUser as User & { mintCreditsRemaining?: number }).mintCreditsRemaining,
+        0,
+      );
+      const nextMintCredits = Math.max(0, currentMintCredits + mintCreditDelta);
       const currentCooldown = this.normalizeNumber(
         (lockedUser as User & { chanceCooldownEndsAt?: number })
           .chanceCooldownEndsAt,
@@ -786,21 +811,45 @@ export class AdminService {
         lockedUser as User & {
           chanceRemaining: number;
           chanceCooldownEndsAt: number;
+          mintCreditsRemaining: number;
         }
       ).chanceRemaining = nextChance;
       (
         lockedUser as User & {
           chanceRemaining: number;
           chanceCooldownEndsAt: number;
+          mintCreditsRemaining: number;
         }
       ).chanceCooldownEndsAt = nextCooldown;
+      (
+        lockedUser as User & {
+          chanceRemaining: number;
+          chanceCooldownEndsAt: number;
+          mintCreditsRemaining: number;
+        }
+      ).mintCreditsRemaining = nextMintCredits;
       await txUserRepo.save(lockedUser);
+
+      if (mintCreditDelta > 0) {
+        await manager.getRepository(MintCreditLedger).save({
+          userId: lockedUser.id,
+          delta: mintCreditDelta,
+          balanceAfter: nextMintCredits,
+          source: 'lam_chance_purchase',
+          sourceRef: normalizedTxHash,
+          metadata: {
+            productId: params.productId,
+            chanceAmount: normalizedChanceAmount,
+          },
+        });
+      }
 
       return {
         duplicate: false,
         userId: lockedUser.id,
         txHash: normalizedTxHash,
         chanceBalance: nextChance,
+        mintCreditsBalance: nextMintCredits,
         chanceCooldownEndsAt: nextCooldown,
         chanceTransactionId: insertedTx.id,
       };
